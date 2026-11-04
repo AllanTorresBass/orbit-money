@@ -1,0 +1,27 @@
+---
+description: Money, pipeline, tenancy, and role invariants from the Orbit decisions
+alwaysApply: true
+---
+
+# Domain invariants
+
+Read `docs/00-decisions.md` before changing allocation, the forecast, or today's allowance. Rejected alternatives in that file stay rejected.
+
+- Store money as `NUMERIC(12, 2)`. Compute in integer cents. Never use binary floating point.
+- One `discretionary` envelope per tenant. The database pairs rollover to tier: `fixed`/`top_up`, `sinking`/`accumulate`, `discretionary`/`reset_sweep`. `(tenant_id, tier_category, priority_order)` is unique.
+- An inflow assigns every cent. Allocations are `>= 0`. Nothing is left unassigned.
+- Envelope balances and bank balances stay separate. Safe-to-spend and the 60-day projection are written only by the six-step pipeline in `docs/08-daily-evaluation-pipeline.md`. Do not reorder those steps.
+- Fixed and sinking envelopes stop at zero. The unpaid remainder reduces discretionary and is its own allocation row. `S_today` may go negative without an alert. A negative discretionary balance is an alert, and the next rate is zero until an inflow covers it.
+- Floor the daily rate. Give leftover cents back as today's remainder. `N_p` is `[today, next inflow)`. Publish no rate when there is no future inflow.
+- A breach cuts only the discretionary burn, at most twice, using the formula in decision D14. Do not raid a bill or a goal to cover it.
+- Settle a transaction once: ledger insert, balance updates, and envelope settlement commit together. Retries reuse `(tenant_id, idempotency_key)`. One `cycle_sweeps` row per tenant per cycle-end date.
+- Dates use `tenants.timezone` (IANA). `booked_date` is that local date. The midnight batch runs per timezone. Do not store a numeric UTC offset.
+
+```ts
+// ❌ number dollars
+const daily = spendable / days;
+
+// ✅ integer cents, leftover returned to today
+const daily = Math.floor(spendableCents / days);
+const remainder = spendableCents - days * daily;
+```

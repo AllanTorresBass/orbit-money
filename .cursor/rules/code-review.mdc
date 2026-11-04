@@ -1,0 +1,28 @@
+---
+description: P0 and P1 review checks before Orbit code is treated as done
+alwaysApply: false
+---
+
+# Code review
+
+Search before calling work done:
+
+```bash
+rg "console\." --glob "*.ts" --glob "*.tsx" -g "!node_modules" -g "!.next"
+rg ":\s*any\b|as any" --glob "*.ts" --glob "*.tsx" -g "!node_modules" -g "!.next"
+```
+
+P0, fix before merge:
+
+- No `console.*`. Use `logger`.
+- No `any` or `as any`. Guards live in `types/` and take `unknown`.
+- No `new FeatureService()` in a screen, component, or hook. Use the export from `lib/services/index.ts`.
+- No string-built SQL. No secrets, bank tokens, or raw payee data in logs or client bundles.
+- A mutation tells the person it succeeded or failed. A ledger write checks the role, then sets the tenant session, then commits once.
+
+P1, fix in the same change when the file was touched:
+
+- Loading skeleton, empty state, and error state exist.
+- Query keys come from `lib/query-keys.ts`. A mutation invalidates them.
+- Effects and listeners clean up. New env vars are in `.env.example` and validated at startup.
+- Screen strings match `docs/ui/README.md`. Money on the server is cents or `NUMERIC(12, 2)`, never `number` dollars in an allocation formula.

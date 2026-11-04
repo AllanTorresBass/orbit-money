@@ -1,0 +1,28 @@
+---
+description: Six-layer feature flow for screens, hooks, services, and SQL
+globs: "**/*.{ts,tsx}"
+alwaysApply: false
+---
+
+# Layered architecture
+
+Build a feature in this order, and do not skip a layer:
+
+1. Zod schema and types in `types/[feature]/`.
+2. Service extending `BaseService`, exported from `lib/services/index.ts`.
+3. Route at `app/api/v1/[feature]/route.ts` with Zod and parameterized SQL.
+4. Hook in `hooks/use-[feature].ts` using TanStack Query. The hook calls the service.
+5. Components in `components/[feature]/`, then the screen in `app/[feature]/page.tsx`.
+
+| Layer | Path | May do |
+| --- | --- | --- |
+| Screen | `app/[feature]/page.tsx` | Server Component. Initial fetch. Route loading and error. |
+| Component | `components/[feature]/` | Render props. Handle input. |
+| Hook | `hooks/use-[feature].ts` | Query, mutation, cache updates. |
+| Service | `lib/services/[feature]/` | Orchestrate the API. Extend `BaseService`. |
+| Endpoint | `app/api/v1/` | Validate, authorize, run SQL. |
+| Data | `lib/db/connection.ts` | Pool and parameterized queries. |
+
+A higher layer may call the next one down. A lower layer never imports a component or a hook. Cross-feature data comes from the other feature's service, not its hook.
+
+Query keys live in `lib/query-keys.ts` as `all` → `lists` → `details`. Components and screens do not call `fetch` or instantiate a service with `new`.

@@ -1,0 +1,31 @@
+---
+description: API routes, raw SQL, RLS session context, and RBAC
+globs: "app/api/**/*.ts,lib/services/**/*.ts,lib/db/**/*.ts,**/*.sql"
+alwaysApply: false
+---
+
+# Backend
+
+No ORM. Queries are parameterized (`$1`, `$2`). Prefer `deleted_at` or suspension over a hard delete once ledger rows exist. Do not delete an envelope that still has transactions.
+
+Services extend `BaseService`, log with `logger`, and are singletons exported from `lib/services/index.ts`.
+
+On every ledger request, before the first query, on the same connection:
+
+1. Authenticate the user.
+2. Require an explicit tenant id when the user has more than one membership. Do not pick one.
+3. Load `tenant_memberships` and require `status = 'active'`.
+4. `set_config('app.current_tenant_id', …, true)` and `set_config('app.current_user_id', …, true)` so the setting dies with the transaction.
+5. If either value is missing, run no ledger query.
+
+RLS is enabled and forced on every state-bearing table. The application role does not bypass it. The client does not send a role. Envelope overrides (`full`, `spend_only`, `hidden`) can narrow a role and cannot widen it. Advisors and read-only users do not log spending. Members propose envelope changes. They do not apply them.
+
+Validate every body with Zod. Return `201` on create, `400` on validation failure, `404` when the row is missing, and `{ error: string }` on failure. Use `withTransaction()` for a post. `liquidity_floor` stays `0.00` until the owner sets it.
+
+```ts
+const validated = schema.parse(body);
+const result = await db.query(
+  "INSERT INTO transactions (tenant_id, amount, idempotency_key) VALUES ($1, $2, $3) RETURNING *",
+  [tenantId, validated.amount, validated.idempotencyKey],
+);
+```

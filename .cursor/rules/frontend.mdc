@@ -1,0 +1,28 @@
+---
+description: Orbit UI, state, forms, and screen language
+globs: "**/*.tsx"
+alwaysApply: false
+---
+
+# Frontend
+
+Server data uses TanStack Query. A household switch or theme uses React Context. Form fields and open/closed panels use `useState`.
+
+Order in a component file: imports, props interface, hooks, early returns for loading, error, and empty, then the main render. `loading.tsx` mirrors the screen. Wrap a chart or dense table in an error boundary. Images use `next/image`.
+
+Forms use React Hook Form, `zodResolver`, and shadcn `FormField`. Schemas stay in `types/[feature]/`. Mutations invalidate `queryKeys` in `onSuccess` and report errors through `useGlobalErrorHandler`.
+
+Screen copy follows `docs/ui/README.md`. The person sees "You can spend", "Bills", "Goals", "Spending", "Payday", and "Keep at least". They never see envelope, waterfall, tier, solvency, discretionary, tenant, or safe-to-spend.
+
+- One idea per screen. One filled button. Hide an action the role cannot perform. Do not show it disabled.
+- The hero amount always shows cents. Other amounts drop `.00`. Dates read "Nov 18", never ISO.
+- Paper `#F4F1EA`, ink `#1C1917`. Green is only the hero when today is inside its pace. The filled button stays ink.
+- The layout is one centered column at every width. Do not add a desktop dashboard.
+
+```tsx
+// ❌ engine vocabulary on screen
+<p>Discretionary safe-to-spend</p>
+
+// ✅ the word list
+<p>You can spend</p>
+```

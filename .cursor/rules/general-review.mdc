@@ -1,0 +1,31 @@
+---
+description: Portable P0 and P1 review checks before a change is treated as done
+alwaysApply: false
+---
+
+# General review
+
+Search the change before calling it done:
+
+```bash
+rg "console\." --glob "*.ts" --glob "*.tsx" -g "!node_modules" -g "!.next"
+rg ":\s*any\b|as any" --glob "*.ts" --glob "*.tsx" -g "!node_modules" -g "!.next"
+```
+
+P0, fix before merge:
+
+- No `console.*`. Use the project logger.
+- No `any` or `as any`. Guards take `unknown` and live next to the shared types.
+- No `new ConcreteService()` and no direct `fetch` in a screen or component.
+- No string-built SQL, no unvalidated body, no secret in the repo or the client bundle.
+- An async action shows success or failure. Errors are not empty `catch` blocks.
+
+P1, fix in the same change when the file was touched:
+
+- Loading, empty, and error states exist.
+- Duplicated UI or parsing moved to a shared component or `lib/utils/`.
+- Query keys are centralized. Mutations invalidate them.
+- Effects clean up. New env vars are documented and validated.
+- Props interfaces are exported. `className` is forwarded.
+
+Then typecheck, lint, and run the tests that cover the change. A P2 note is naming or polish and does not block.

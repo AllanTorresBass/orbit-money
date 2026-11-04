@@ -1,0 +1,25 @@
+---
+description: Portable layering, dependency direction, and SOLID boundaries
+globs: "**/*.{ts,tsx}"
+alwaysApply: false
+---
+
+# General architecture
+
+Dependency direction is one way: screen → component → hook → service → infrastructure. A lower layer never imports a component, a hook, or a screen.
+
+| Layer | Does | Must not |
+| --- | --- | --- |
+| Screen | Compose the route. Loading and error for the route. | Call `fetch` or the database. |
+| Component | Render props. Handle input. | Hold business rules or global server state. |
+| Hook | Orchestrate queries, mutations, and UI state. | Build SQL or HTTP details. |
+| Service | Business rules. Depend on interfaces. | Import UI. |
+| Infrastructure | API, database, files. | Contain product rules. |
+
+Resolve services from the project container. Do not `new ConcreteService()` in a screen, component, or hook, and do not import a concrete service into those layers.
+
+A feature keeps its components, hooks, and helpers private. Another feature imports the public service or the shared layer, not an internal file.
+
+One module, one reason to change. Extend with configuration and interfaces. Mocks must satisfy the same contract as production. Prefer a small interface over one that forces unused methods. Split a file that fetches, validates, and renders.
+
+Build a feature in this order: types and Zod schema, service interface and implementation, endpoint, hook, components, screen.

@@ -1,0 +1,24 @@
+---
+description: Portable API validation, data access, and auth checks
+globs: "app/api/**/*.ts,lib/services/**/*.ts,lib/db/**/*.ts,src/services/**/*.ts,**/*.sql"
+alwaysApply: false
+---
+
+# General backend
+
+Validate every request body and query with Zod before any write. Check authentication and the caller's permission before the query. Do not trust a role sent by the client.
+
+Data access stays in the infrastructure layer. Parameterize every query (`$1`, `$2`, or the driver's bound parameters). Do not build SQL by concatenating input. Wrap `JSON.parse` in try/catch. Prefer a soft delete or a suspended status once rows are referenced.
+
+Services implement an interface, receive dependencies through the constructor, and are registered in the container. They log with the project logger.
+
+Return explicit statuses: `201` on create, `400` when validation fails, `401` or `403` when auth fails, `404` when the row is missing, and a consistent `{ error: string }` body on failure. Do not leak internals. A write that must succeed or fail together uses a transaction.
+
+Rate-limit public endpoints. Do not log secrets, tokens, or raw personal data. Lists are paginated.
+
+```ts
+const validated = schema.parse(body);
+await assertCan(session, "items:write");
+const row = await db.query("INSERT INTO items (name) VALUES ($1) RETURNING *", [validated.name]);
+return NextResponse.json(row, { status: 201 });
+```

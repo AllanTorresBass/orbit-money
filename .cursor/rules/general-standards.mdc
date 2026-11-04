@@ -1,0 +1,24 @@
+---
+description: Portable TypeScript, reuse, logging, and merge gates
+alwaysApply: true
+---
+
+# General standards
+
+A product rule in this folder overrides this file when it names a path, a store, or a domain invariant.
+
+`any` is a P0 violation. Use `unknown` and a type guard. Catch blocks are `catch (error: unknown)`. Dictionaries are `Record<string, unknown>`.
+
+- Every component exports a props interface. Include `className?` and merge it with `cn()`.
+- Shared types and Zod schemas live in `types/[feature]/`. Infer with `z.infer<typeof schema>`. Do not declare entity types inside components, hooks, or services.
+- Shared UI is generic and lives in `components/shared/` or `components/common/`. A second copy of date, error, or list logic goes to `lib/utils/` first.
+- Log with the project logger. Do not call `console.*`.
+- Every create, update, and delete tells the user it succeeded or failed. Do not fail silently.
+
+| Priority | Blocks merge when |
+| --- | --- |
+| P0 | `any`, `console.*`, a screen calling the network, a secret in the repo, unvalidated input, string-built SQL |
+| P1 | Duplicated logic, a local entity type, a missing loading, empty, or error state |
+| P2 | Naming, polish, non-blocking docs |
+
+Layouts work at 360px with no horizontal scroll. Use the project's breakpoints. New env vars go in `.env.example` and are validated at startup.

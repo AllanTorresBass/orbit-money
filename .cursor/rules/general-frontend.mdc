@@ -1,0 +1,30 @@
+---
+description: Portable UI state, forms, loading, and accessibility
+globs: "**/*.tsx"
+alwaysApply: false
+---
+
+# General frontend
+
+Pick state in this order:
+
+- Server data: TanStack Query, or the project's server-state library.
+- Shared and persistent: the project store.
+- Shared for one feature: React Context.
+- Inputs, toggles, and other local UI: `useState`.
+
+Order in a component file: imports, exported props interface, hooks, early returns for loading, error, and empty, then the main render. A screen composes. It does not fetch inside `useEffect`.
+
+`loading.tsx` or a skeleton matches the final layout. Wrap a chart or a dense table in an error boundary. Images use the framework image component. Lists that can grow are paginated. Effects, timers, and listeners clean up.
+
+Forms use React Hook Form, `zodResolver`, and the shared form fields. Schemas stay in `types/[feature]/`. Query keys come from the central key module (`all` → `lists` → `details`). A mutation invalidates those keys on success and surfaces the error to the user.
+
+Icon-only buttons have an accessible name. Keyboard use works. Components forward `className` through `cn()`.
+
+```tsx
+// ❌ the screen owns the request
+useEffect(() => { fetch("/api/items").then((r) => r.json()).then(setItems); }, []);
+
+// ✅ the hook calls the service
+const { data, isLoading, error } = useItems();
+```
