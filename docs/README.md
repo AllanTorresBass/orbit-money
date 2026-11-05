@@ -54,6 +54,8 @@ The interface is specified separately, for a person who will never see these mod
 
 How the code is structured and reviewed: [Engineering rules](10-engineering-rules.md). The short form of those rules is in `.cursor/rules/`.
 
+How to build the app against Neon and the Harbor seed: [Implementation plan](11-implementation-plan.md).
+
 ## Symbols used throughout
 
 | Symbol | Meaning |

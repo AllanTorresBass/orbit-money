@@ -1,0 +1,173 @@
+import { randomUUID } from "node:crypto";
+import { withTransaction } from "@/lib/db/connection";
+import { fromCents } from "@/lib/money/numeric";
+import { BaseService } from "@/lib/services/base/BaseService";
+import { runEvaluationPipeline } from "@/lib/pipeline/run-evaluation";
+
+export class TenantService extends BaseService {
+  constructor() {
+    super("TenantService");
+  }
+
+  async createHousehold(input: {
+    name: string;
+    tenantType: "individual" | "household" | "organization";
+    ownerEmail: string;
+    ownerName: string;
+    timezone: string;
+    paydayAmountCents: number;
+    nextPayday: string;
+    rrule: string;
+  }): Promise<{ tenantId: string; userId: string }> {
+    return withTransaction(null, async (client) => {
+      await client.query("SELECT set_config('app.bypass_rls', 'on', true)");
+
+      const tenantId = randomUUID();
+      const userId = randomUUID();
+      const accountId = randomUUID();
+      const spendingId = randomUUID();
+      const emergencyId = randomUUID();
+
+      await client.query(
+        `INSERT INTO tenants (id, name, tenant_type, timezone, holiday_region, liquidity_floor)
+         VALUES ($1, $2, $3, $4, 'US', 0.00)`,
+        [tenantId, input.name, input.tenantType, input.timezone],
+      );
+
+      await client.query(
+        `INSERT INTO users (id, email, name) VALUES ($1, $2, $3)
+         ON CONFLICT (email) DO UPDATE SET name = EXCLUDED.name
+         RETURNING id`,
+        [userId, input.ownerEmail.toLowerCase(), input.ownerName],
+      );
+
+      const userRow = await client.query<{ id: string }>(
+        `SELECT id FROM users WHERE email = $1`,
+        [input.ownerEmail.toLowerCase()],
+      );
+      const resolvedUserId = userRow.rows[0]?.id ?? userId;
+
+      await client.query(
+        `INSERT INTO tenant_memberships (tenant_id, user_id, role, status)
+         VALUES ($1, $2, 'owner', 'active')
+         ON CONFLICT (tenant_id, user_id) DO UPDATE SET role = 'owner', status = 'active'`,
+        [tenantId, resolvedUserId],
+      );
+
+      await client.query(
+        `INSERT INTO accounts (id, tenant_id, name, current_balance, is_everyday)
+         VALUES ($1, $2, 'Checking', 0.00, TRUE)`,
+        [accountId, tenantId],
+      );
+
+      await client.query(
+        `INSERT INTO envelopes
+           (id, tenant_id, name, tier_category, priority_order, current_balance, rollover_policy, monthly_installment)
+         VALUES
+           ($1, $3, 'Emergency', 'sinking', 1, 0.00, 'accumulate', 0.00),
+           ($2, $3, 'Spending', 'discretionary', 1, 0.00, 'reset_sweep', NULL)`,
+        [emergencyId, spendingId, tenantId],
+      );
+
+      await client.query(
+        `UPDATE envelopes SET sweep_envelope_id = $1 WHERE id = $2`,
+        [emergencyId, spendingId],
+      );
+
+      await client.query(
+        `INSERT INTO scheduled_schedules
+           (tenant_id, account_id, title, amount, direction, recurrence_rrule, next_due_date, is_active)
+         VALUES ($1, $2, 'Payday', $3, 'inflow', $4, $5::date, TRUE)`,
+        [
+          tenantId,
+          accountId,
+          fromCents(input.paydayAmountCents),
+          input.rrule,
+          input.nextPayday,
+        ],
+      );
+
+      // Opening payday deposit so Today has a number immediately.
+      const txn = await client.query<{ id: string }>(
+        `INSERT INTO transactions
+           (tenant_id, account_id, amount, booked_at, booked_date, memo, idempotency_key)
+         VALUES ($1, $2, $3, NOW(), $4::date, 'Payday', $5)
+         RETURNING id`,
+        [
+          tenantId,
+          accountId,
+          fromCents(input.paydayAmountCents),
+          input.nextPayday,
+          `create-payday-${tenantId}`,
+        ],
+      );
+
+      await client.query(
+        `UPDATE accounts SET current_balance = current_balance + $1, updated_at = NOW()
+         WHERE id = $2`,
+        [fromCents(input.paydayAmountCents), accountId],
+      );
+
+      await client.query("SELECT set_config('app.current_tenant_id', $1, true)", [tenantId]);
+      await client.query("SELECT set_config('app.current_user_id', $1, true)", [resolvedUserId]);
+      await client.query("SELECT set_config('app.bypass_rls', 'off', true)");
+
+      await runEvaluationPipeline(client, {
+        tenantId,
+        userId: resolvedUserId,
+        trigger: "sync",
+        transactionId: txn.rows[0].id,
+        asOfDate: input.nextPayday,
+      });
+
+      this.logInfo("Household created", { tenantId });
+      return { tenantId, userId: resolvedUserId };
+    });
+  }
+
+  async listPeople(tenantId: string, userId: string) {
+    return withTransaction({ tenantId, userId }, async (client) => {
+      const result = await client.query<{
+        user_id: string;
+        name: string;
+        email: string;
+        role: string;
+        status: string;
+      }>(
+        `SELECT m.user_id, u.name, u.email, m.role, m.status
+         FROM tenant_memberships m
+         JOIN users u ON u.id = m.user_id
+         WHERE m.tenant_id = $1
+         ORDER BY m.role, u.name`,
+        [tenantId],
+      );
+      return result.rows.map((r) => ({
+        userId: r.user_id,
+        name: r.name,
+        email: r.email,
+        role: r.role,
+        status: r.status,
+      }));
+    });
+  }
+
+  async updateFloor(tenantId: string, userId: string, role: string, floorCents: number) {
+    if (role !== "owner" && role !== "admin") {
+      throw new Error("Forbidden");
+    }
+    return withTransaction({ tenantId, userId }, async (client) => {
+      await client.query(
+        `UPDATE tenants SET liquidity_floor = $1 WHERE id = $2`,
+        [fromCents(floorCents), tenantId],
+      );
+      await runEvaluationPipeline(client, {
+        tenantId,
+        userId,
+        trigger: "sync",
+      });
+      return { floorCents };
+    });
+  }
+}
+
+export const tenantService = new TenantService();

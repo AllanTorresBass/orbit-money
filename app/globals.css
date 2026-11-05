@@ -1,0 +1,40 @@
+@import "tailwindcss";
+
+:root {
+  --orbit-paper: #f4f1ea;
+  --orbit-ink: #1c1917;
+  --orbit-secondary: #6f6a63;
+  --orbit-line: #e6e1d8;
+  --orbit-fine: #1f6b4a;
+  --orbit-low: #8a5a12;
+  --orbit-short: #8e2f2f;
+  --background: var(--orbit-paper);
+  --foreground: var(--orbit-ink);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --orbit-paper: #141311;
+    --orbit-ink: #f4f1ea;
+    --orbit-secondary: #a39e96;
+    --orbit-line: #2a2724;
+    --orbit-fine: #8fcbb0;
+    --orbit-low: #e2c08a;
+    --orbit-short: #f0b4b4;
+    --background: var(--orbit-paper);
+    --foreground: var(--orbit-ink);
+  }
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-orbit-sans);
+  --font-serif: var(--font-orbit-serif);
+}
+
+body {
+  background: var(--orbit-paper);
+  color: var(--orbit-ink);
+  font-family: var(--font-orbit-sans), system-ui, sans-serif;
+}
