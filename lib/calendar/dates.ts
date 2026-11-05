@@ -9,6 +9,11 @@ export function todayInTimezone(timezone: string, now: Date = new Date()): strin
   return bookedDate(now, timezone);
 }
 
+/** Local clock hour 0–23 in the tenant IANA timezone. */
+export function localHourInTimezone(timezone: string, now: Date = new Date()): number {
+  return DateTime.fromJSDate(now, { zone: "utc" }).setZone(timezone).hour;
+}
+
 export function parseISODate(iso: string): DateTime {
   const dt = DateTime.fromISO(iso, { zone: "utc" });
   if (!dt.isValid) {

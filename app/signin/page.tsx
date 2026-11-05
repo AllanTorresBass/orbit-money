@@ -1,14 +1,16 @@
 "use client";
 
 import { signIn } from "next-auth/react";
-import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useState } from "react";
 import { toast } from "sonner";
+import { isClientDevHeaderAuthEnabled } from "@/lib/auth/dev-header-auth";
 import { setActorUserId, setTenantId } from "@/lib/dev/actor-store";
 import { HARBOR } from "@/lib/dev/harbor-ids";
 
-export default function SignInPage() {
+function SignInForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [email, setEmail] = useState("blair@harbor.test");
   const [saving, setSaving] = useState(false);
 
@@ -24,20 +26,23 @@ export default function SignInPage() {
         return;
       }
 
-      // Keep API client headers aligned with the signed-in Harbor users for now.
-      const map: Record<string, string> = {
-        "alex@harbor.test": HARBOR.alexId,
-        "blair@harbor.test": HARBOR.blairId,
-        "casey@harbor.test": HARBOR.caseyId,
-      };
-      const userId = map[email.trim().toLowerCase()];
-      if (userId) {
-        setActorUserId(userId);
-        setTenantId(HARBOR.tenantId);
+      // Dev actor headers stay aligned only when header auth is enabled.
+      if (isClientDevHeaderAuthEnabled()) {
+        const map: Record<string, string> = {
+          "alex@harbor.test": HARBOR.alexId,
+          "blair@harbor.test": HARBOR.blairId,
+          "casey@harbor.test": HARBOR.caseyId,
+        };
+        const userId = map[email.trim().toLowerCase()];
+        if (userId) {
+          setActorUserId(userId);
+          setTenantId(HARBOR.tenantId);
+        }
       }
 
       toast.success("Signed in");
-      router.push("/today");
+      const callbackUrl = searchParams.get("callbackUrl") ?? "/today";
+      router.push(callbackUrl.startsWith("/") ? callbackUrl : "/today");
       router.refresh();
     } finally {
       setSaving(false);
@@ -73,5 +78,17 @@ export default function SignInPage() {
         Try alex@harbor.test, blair@harbor.test, or casey@harbor.test.
       </p>
     </div>
+  );
+}
+
+export default function SignInPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="mx-auto max-w-md px-6 py-16 text-[var(--orbit-secondary)]">Loading…</div>
+      }
+    >
+      <SignInForm />
+    </Suspense>
   );
 }

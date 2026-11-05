@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { api } from "@/lib/api/client";
+import { enqueuePurchase } from "@/lib/offline/purchase-queue";
 import { queryKeys } from "@/lib/query-keys";
 
 export function useAllowance() {
@@ -22,9 +23,43 @@ export function useMe() {
 export function useCreatePurchase() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (input: { amountCents: number; idempotencyKey?: string }) =>
-      api.createPurchase(input),
-    onSuccess: async () => {
+    mutationFn: async (input: { amountCents: number; idempotencyKey?: string; memo?: string }) => {
+      const idempotencyKey = input.idempotencyKey ?? crypto.randomUUID();
+      if (typeof navigator !== "undefined" && !navigator.onLine) {
+        enqueuePurchase({
+          amountCents: input.amountCents,
+          idempotencyKey,
+          memo: input.memo,
+        });
+        return { queued: true as const };
+      }
+      try {
+        await api.createPurchase({
+          amountCents: input.amountCents,
+          idempotencyKey,
+          memo: input.memo,
+        });
+        return { queued: false as const };
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : "";
+        const looksNetwork =
+          message === "Failed to fetch" || message.toLowerCase().includes("network");
+        if (looksNetwork) {
+          enqueuePurchase({
+            amountCents: input.amountCents,
+            idempotencyKey,
+            memo: input.memo,
+          });
+          return { queued: true as const };
+        }
+        throw error;
+      }
+    },
+    onSuccess: async (result) => {
+      if (result.queued) {
+        toast.success("Saved offline — will sync when you are back online");
+        return;
+      }
       toast.success("Purchase saved");
       await queryClient.invalidateQueries({ queryKey: queryKeys.allowance.all });
       await queryClient.invalidateQueries({ queryKey: queryKeys.forecast.all });

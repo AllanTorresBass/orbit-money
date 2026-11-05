@@ -81,5 +81,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   },
   session: { strategy: "jwt" },
   trustHost: true,
-  secret: process.env.AUTH_SECRET ?? "orbit-dev-secret-change-me",
+  secret:
+    process.env.AUTH_SECRET ??
+    (process.env.NODE_ENV === "production" ? undefined : "orbit-dev-secret-change-me"),
 });

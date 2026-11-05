@@ -49,6 +49,14 @@ export async function withTransaction<T>(
   try {
     await client.query("BEGIN");
     if (session) {
+      // Neon owner has BYPASSRLS; assume a non-bypass role so policies apply.
+      try {
+        await client.query("SET LOCAL ROLE orbit_app");
+      } catch (error: unknown) {
+        logger.error("SET LOCAL ROLE orbit_app failed — RLS may not enforce", {
+          error: error instanceof Error ? error.message : "unknown",
+        });
+      }
       await client.query("SELECT set_config('app.current_tenant_id', $1, true)", [
         session.tenantId,
       ]);

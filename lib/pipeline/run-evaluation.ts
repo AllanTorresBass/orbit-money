@@ -1,14 +1,19 @@
 import type { PoolClient } from "pg";
-import { addDays, daysBetween, daysUntilNextInflow, todayInTimezone } from "@/lib/calendar/dates";
+import { addDays, daysUntilNextInflow, todayInTimezone } from "@/lib/calendar/dates";
 import { expandSchedules } from "@/lib/calendar/expand-schedules";
 import { getHolidaySet } from "@/lib/calendar/holidays";
 import { projectCashflow } from "@/lib/engines/forecast";
+import { buildProjectedBurnByDate } from "@/lib/engines/projected-burn";
 import { computeDailyRate, futureBurnCents } from "@/lib/engines/safe-to-spend";
 import { mitigateBreach } from "@/lib/engines/solvency";
 import { absorbDebit, allocateInflow } from "@/lib/engines/waterfall";
 import { logger } from "@/lib/logger";
 import { fromCents, toCents } from "@/lib/money/numeric";
-import { splitDailyRate } from "@/lib/money/cents";
+import {
+  advanceDueDates,
+  applyCycleEndSweep,
+  isCycleEndDay,
+} from "@/lib/pipeline/cycle-boundary";
 import type { EnvelopeState } from "@/types/envelope/envelope.types";
 
 export interface PipelineInput {
@@ -54,6 +59,35 @@ async function loadEnvelopes(client: PoolClient, tenantId: string): Promise<Enve
   return result.rows.map(mapEnvelope);
 }
 
+async function nextInflowDate(
+  client: PoolClient,
+  tenantId: string,
+  today: string,
+): Promise<string | null> {
+  const result = await client.query<{ next_due_date: string }>(
+    `SELECT next_due_date::text AS next_due_date
+     FROM scheduled_schedules
+     WHERE tenant_id = $1 AND is_active = TRUE AND direction = 'inflow'
+       AND next_due_date > $2::date
+     ORDER BY next_due_date ASC
+     LIMIT 1`,
+    [tenantId, today],
+  );
+  // Prefer a future payday. If the only inflow is today (not yet advanced), treat as today.
+  if (result.rows[0]?.next_due_date) {
+    return result.rows[0].next_due_date;
+  }
+  const todayInflow = await client.query<{ next_due_date: string }>(
+    `SELECT next_due_date::text AS next_due_date
+     FROM scheduled_schedules
+     WHERE tenant_id = $1 AND is_active = TRUE AND direction = 'inflow'
+       AND next_due_date = $2::date
+     LIMIT 1`,
+    [tenantId, today],
+  );
+  return todayInflow.rows[0]?.next_due_date ?? null;
+}
+
 export async function runEvaluationPipeline(
   client: PoolClient,
   input: PipelineInput,
@@ -88,22 +122,39 @@ export async function runEvaluationPipeline(
     }
   }
 
-  const envelopes = await loadEnvelopes(client, input.tenantId);
-  const discretionary = envelopes.find((e) => e.tierCategory === "discretionary");
+  let envelopes = await loadEnvelopes(client, input.tenantId);
+  let discretionary = envelopes.find((e) => e.tierCategory === "discretionary");
   if (!discretionary) {
     throw new Error("Missing discretionary envelope");
   }
 
-  const nextInflowRes = await client.query<{ next_due_date: string }>(
-    `SELECT next_due_date::text AS next_due_date
-     FROM scheduled_schedules
-     WHERE tenant_id = $1 AND is_active = TRUE AND direction = 'inflow'
-       AND next_due_date >= $2::date
-     ORDER BY next_due_date ASC
-     LIMIT 1`,
-    [input.tenantId, today],
-  );
-  const nextPayday = nextInflowRes.rows[0]?.next_due_date ?? null;
+  const peekNextPayday = await nextInflowDate(client, input.tenantId, today);
+
+  // Midnight-only cycle boundary (module 8): sweep on the last day, then advance dues.
+  if (input.trigger === "midnight") {
+    if (isCycleEndDay(today, peekNextPayday)) {
+      logger.info("Pipeline cycle end", {
+        tenantId: input.tenantId,
+        today,
+        nextPayday: peekNextPayday,
+        discCents: discretionary.currentBalanceCents,
+      });
+      await applyCycleEndSweep(client, {
+        tenantId: input.tenantId,
+        cycleEndDate: today,
+        discretionary,
+        envelopes,
+      });
+      envelopes = await loadEnvelopes(client, input.tenantId);
+      discretionary = envelopes.find((e) => e.tierCategory === "discretionary");
+      if (!discretionary) {
+        throw new Error("Missing discretionary envelope");
+      }
+    }
+    await advanceDueDates(client, input.tenantId, today);
+  }
+
+  const nextPayday = await nextInflowDate(client, input.tenantId, today);
   const nP = daysUntilNextInflow({ today, nextInflow: nextPayday });
 
   const spentTodayRes = await client.query<{ spent: string }>(
@@ -124,6 +175,18 @@ export async function runEvaluationPipeline(
     oUnfundedCents: 0,
     nP,
     eDiscActualCents,
+  });
+
+  logger.info("Pipeline rate", {
+    tenantId: input.tenantId,
+    trigger: input.trigger,
+    today,
+    nP,
+    nextPayday,
+    sDailyCents: rate?.sDailyCents ?? null,
+    sTodayCents: rate?.sTodayCents ?? null,
+    discCents: discretionary.currentBalanceCents,
+    spentTodayCents: eDiscActualCents,
   });
 
   const cashRes = await client.query<{ total: string }>(
@@ -181,26 +244,33 @@ export async function runEvaluationPipeline(
       })
     : 0;
 
-  /** Approximate post-payday burn from the inflow amount when a full in-memory waterfall is not yet projected. */
-  const burnAfterPayday = (paydayIso: string): number => {
-    const inflow = eventsByDate[paydayIso]?.inflowCents ?? 0;
-    const idx = paydayDates.indexOf(paydayIso);
-    const next = paydayDates[idx + 1] ?? addDays(paydayIso, 14);
-    const cycleDays = Math.max(1, daysBetween(paydayIso, next));
-    // Typical Harbor residual after bills/goals ≈ inflow − 150000 when funded; use 53% of inflow as a floor estimate.
-    const estimatedDisc = Math.max(0, Math.floor(inflow * 0.5));
-    return splitDailyRate(estimatedDisc, cycleDays).daily;
-  };
+  const dueAmountByEnvelopeId: Record<string, number> = {};
+  for (const e of envelopes.filter((x) => x.tierCategory === "fixed")) {
+    const dueRes = await client.query<{ due: string }>(
+      `SELECT COALESCE(SUM(amount), 0)::text AS due
+       FROM scheduled_schedules
+       WHERE tenant_id = $1 AND envelope_id = $2 AND is_active = TRUE
+         AND direction = 'outflow' AND next_due_date >= $3::date`,
+      [input.tenantId, e.id, today],
+    );
+    const scheduleDue = toCents(dueRes.rows[0]?.due ?? "0");
+    dueAmountByEnvelopeId[e.id] = scheduleDue > 0 ? scheduleDue : (e.targetCapCents ?? 0);
+  }
+
+  const horizonDates = Array.from({ length: 61 }, (_, i) => addDays(today, i));
+  const burnByDate = buildProjectedBurnByDate({
+    today,
+    dates: horizonDates,
+    initialBurnCents: burn,
+    envelopes,
+    dueAmountByEnvelopeId,
+    eventsByDate,
+    paydayDates: paydayDates.filter((d) => d > today),
+  });
 
   const burnForDay = (dayOffset: number, date: string): number => {
     if (dayOffset === 0) return 0;
-    const priorPaydays = paydayDates.filter((p) => p <= date && p > today);
-    if (priorPaydays.length === 0) return burn;
-    const lastPayday = priorPaydays[priorPaydays.length - 1];
-    if (date === lastPayday) {
-      return burnAfterPayday(lastPayday);
-    }
-    return burnAfterPayday(lastPayday);
+    return burnByDate[date] ?? burn;
   };
 
   let series = projectCashflow({
@@ -233,6 +303,13 @@ export async function runEvaluationPipeline(
       if (rate.sTodayCents >= 0) {
         publishedToday = mitigation.rateCents + rate.remainderCents - eDiscActualCents;
       }
+      logger.info("Pipeline breach cut", {
+        tenantId: input.tenantId,
+        cutsApplied: mitigation.cutsApplied,
+        rateCents: mitigation.rateCents,
+        firstBreachDate: mitigation.alert?.firstBreachDate ?? null,
+        gapCents: mitigation.alert?.gapCents ?? null,
+      });
     }
   }
 
@@ -310,7 +387,13 @@ async function settleTransaction(
   );
   const txn = txnRes.rows[0];
   if (!txn) return;
-  if (txn.settled_at) return;
+  if (txn.settled_at) {
+    logger.info("Settlement skipped — already settled", {
+      tenantId,
+      transactionId,
+    });
+    return;
+  }
 
   const amountCents = toCents(txn.amount);
   const envelopes = await loadEnvelopes(client, tenantId);

@@ -1,3 +1,4 @@
+import { isClientDevHeaderAuthEnabled } from "@/lib/auth/dev-header-auth";
 import { getActorUserId, getTenantId } from "@/lib/dev/actor-store";
 
 export interface ApiClientOptions {
@@ -6,16 +7,21 @@ export interface ApiClientOptions {
 }
 
 async function apiFetch<T>(path: string, init?: RequestInit, options?: ApiClientOptions): Promise<T> {
-  const userId = options?.userId ?? getActorUserId();
-  const tenantId = options?.tenantId ?? getTenantId();
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...(init?.headers as Record<string, string> | undefined),
+  };
+
+  // Production uses Auth.js cookies. Dev header impersonation is opt-in only.
+  if (isClientDevHeaderAuthEnabled()) {
+    headers["x-user-id"] = options?.userId ?? getActorUserId();
+    headers["x-tenant-id"] = options?.tenantId ?? getTenantId();
+  }
+
   const response = await fetch(path, {
     ...init,
-    headers: {
-      "Content-Type": "application/json",
-      "x-user-id": userId,
-      "x-tenant-id": tenantId,
-      ...(init?.headers ?? {}),
-    },
+    headers,
+    credentials: "same-origin",
   });
   if (!response.ok) {
     const body: unknown = await response.json().catch(() => ({ error: "Request failed" }));
@@ -154,5 +160,27 @@ export const api = {
     apiFetch<{ userId: string; status: string }>("/api/v1/people/invite", {
       method: "POST",
       body: JSON.stringify(body),
+    }),
+  reorderEnvelopes: (body: {
+    tierCategory: "fixed" | "sinking";
+    orderedIds: string[];
+  }) =>
+    apiFetch<{ ok: boolean }>("/api/v1/envelopes/reorder", {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+  getAccounts: () =>
+    apiFetch<{
+      accounts: Array<{
+        id: string;
+        name: string;
+        balanceCents: number;
+        isEveryday: boolean;
+      }>;
+    }>("/api/v1/accounts"),
+  updateAccountBalance: (id: string, balanceCents: number) =>
+    apiFetch<{ id: string; balanceCents: number }>(`/api/v1/accounts/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ balanceCents }),
     }),
 };

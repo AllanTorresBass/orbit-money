@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { ActorSwitcher } from "@/components/shell/actor-switcher";
 import { useMe } from "@/hooks/use-allowance";
 import { api } from "@/lib/api/client";
+import { isClientDevHeaderAuthEnabled } from "@/lib/auth/dev-header-auth";
 import { cn, formatMoney } from "@/lib/utils";
 
 export interface YouScreenProps {
@@ -37,6 +38,13 @@ export function YouScreen({ className }: YouScreenProps) {
   const [inviteRole, setInviteRole] = useState<"member" | "advisor" | "admin" | "read_only">(
     "advisor",
   );
+  const [editingAccountId, setEditingAccountId] = useState<string | null>(null);
+  const [accountDollars, setAccountDollars] = useState("");
+
+  const accounts = useQuery({
+    queryKey: ["accounts"],
+    queryFn: () => api.getAccounts(),
+  });
 
   return (
     <div className={cn("mx-auto min-h-screen max-w-md px-6 pb-28 pt-8", className)}>
@@ -68,6 +76,90 @@ export function YouScreen({ className }: YouScreenProps) {
       ) : (
         <p className="mt-8 text-[var(--orbit-secondary)]">Loading…</p>
       )}
+
+      <section className="mt-10">
+        <h2 className="text-[15px] font-medium text-[var(--orbit-ink)]">Bank</h2>
+        {accounts.isLoading ? (
+          <p className="mt-2 text-[15px] text-[var(--orbit-secondary)]">Loading…</p>
+        ) : accounts.isError ? (
+          <p className="mt-2 text-[15px] text-[var(--orbit-short)]">Could not load accounts.</p>
+        ) : (
+          <ul className="mt-2">
+            {(accounts.data?.accounts ?? []).map((account) => (
+              <li key={account.id} className="border-b border-[var(--orbit-line)] py-3">
+                <div className="flex items-baseline justify-between gap-3 text-[17px]">
+                  <span>
+                    {account.name}
+                    {account.isEveryday ? (
+                      <span className="ml-2 text-[13px] text-[var(--orbit-secondary)]">
+                        Everyday
+                      </span>
+                    ) : null}
+                  </span>
+                  <span className="tabular-nums">{formatMoney(account.balanceCents)}</span>
+                </div>
+                {canManage ? (
+                  editingAccountId === account.id ? (
+                    <div className="mt-2 flex items-baseline gap-2">
+                      <span className="text-[15px]">$</span>
+                      <input
+                        value={accountDollars}
+                        onChange={(e) => setAccountDollars(e.target.value)}
+                        className="min-w-0 flex-1 border-b border-[var(--orbit-line)] bg-transparent py-1 text-[15px] outline-none"
+                        inputMode="decimal"
+                        aria-label={`${account.name} balance`}
+                      />
+                      <button
+                        type="button"
+                        className="text-[15px] text-[var(--orbit-ink)]"
+                        onClick={() => {
+                          const n = Number(accountDollars);
+                          if (!Number.isFinite(n)) {
+                            toast.error("Enter a valid amount");
+                            return;
+                          }
+                          void api
+                            .updateAccountBalance(account.id, Math.round(n * 100))
+                            .then(async () => {
+                              toast.success("Balance updated");
+                              setEditingAccountId(null);
+                              await queryClient.invalidateQueries();
+                            })
+                            .catch((error: unknown) => {
+                              toast.error(
+                                error instanceof Error ? error.message : "Could not save",
+                              );
+                            });
+                        }}
+                      >
+                        Save
+                      </button>
+                      <button
+                        type="button"
+                        className="text-[15px] text-[var(--orbit-secondary)]"
+                        onClick={() => setEditingAccountId(null)}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      className="mt-1 text-[13px] text-[var(--orbit-secondary)]"
+                      onClick={() => {
+                        setEditingAccountId(account.id);
+                        setAccountDollars((account.balanceCents / 100).toFixed(2));
+                      }}
+                    >
+                      Update balance
+                    </button>
+                  )
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
 
       {canManage && proposals.data && proposals.data.proposals.length > 0 ? (
         <section className="mt-10">
@@ -239,8 +331,12 @@ export function YouScreen({ className }: YouScreenProps) {
       ) : null}
 
       <section className="mt-12 border-t border-[var(--orbit-line)] pt-6">
-        <p className="text-[13px] text-[var(--orbit-secondary)]">Try as</p>
-        <ActorSwitcher className="mt-2" />
+        {isClientDevHeaderAuthEnabled() ? (
+          <>
+            <p className="text-[13px] text-[var(--orbit-secondary)]">Try as</p>
+            <ActorSwitcher className="mt-2" />
+          </>
+        ) : null}
         <Link href="/signin" className="mt-6 block text-[15px] text-[var(--orbit-ink)]">
           Sign in with email
         </Link>

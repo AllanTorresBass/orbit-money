@@ -193,11 +193,13 @@ Do not ship a screen that computes `S_today` in the client. Do not reorder pipel
 
 ## Acceptance checklist (release bar)
 
-- [ ] Walkthrough paycheck, rate, forecast, $40 spend, overspend rebake, midnight, sweep, breach cut
-- [ ] Create → first number without adding a bill
-- [ ] Offline purchase queue + idempotent retry (when offline support ships)
-- [ ] Advisor: hero visible, no Add purchase
-- [ ] Member proposal cannot self-accept
-- [ ] Wrong tenant session returns empty/deny
-- [ ] No `any`, no `console.*`, no secrets in git
-- [ ] `.env` absent from remote; `.env.example` present
+- [x] Walkthrough paycheck, rate, forecast, $40 spend, overspend rebake, midnight, sweep, breach cut
+- [x] Create → first number without adding a bill
+- [x] Offline purchase queue + idempotent retry (when offline support ships)
+- [x] Advisor: hero visible, no Add purchase
+- [x] Member proposal cannot self-accept
+- [x] Wrong tenant session returns empty/deny
+- [x] No `any`, no `console.*`, no secrets in git
+- [x] `.env` absent from remote; `.env.example` present
+
+Remaining ops: link the Vercel project and set Neon + `AUTH_SECRET` + `CRON_SECRET` per [12-deploy.md](12-deploy.md).

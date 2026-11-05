@@ -1,5 +1,6 @@
 import { headers } from "next/headers";
 import { auth } from "@/auth";
+import { isDevHeaderAuthEnabled } from "@/lib/auth/dev-header-auth";
 import { withTransaction } from "@/lib/db/connection";
 import type { MembershipRole } from "@/lib/auth/permissions";
 
@@ -55,16 +56,19 @@ async function loadMembership(userId: string, tenantId: string): Promise<AppSess
 }
 
 export async function resolveSession(): Promise<AppSession | null> {
+  const nextAuth = await auth();
+  if (nextAuth?.userId && nextAuth.tenantId) {
+    // Cookie session wins. Do not let request headers impersonate another user.
+    return loadMembership(nextAuth.userId, nextAuth.tenantId);
+  }
+
+  if (!isDevHeaderAuthEnabled()) {
+    return null;
+  }
+
   const h = await headers();
   const headerUserId = h.get("x-user-id");
   const headerTenantId = h.get("x-tenant-id");
-
-  const nextAuth = await auth();
-  if (nextAuth?.userId && nextAuth.tenantId) {
-    const tenantOverride = headerTenantId ?? nextAuth.tenantId;
-    return loadMembership(nextAuth.userId, tenantOverride);
-  }
-
   if (headerUserId && headerTenantId) {
     return loadMembership(headerUserId, headerTenantId);
   }

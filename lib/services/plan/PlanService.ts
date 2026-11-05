@@ -189,6 +189,58 @@ export class PlanService extends BaseService {
     });
   }
 
+  async reorderEnvelopes(input: {
+    tenantId: string;
+    userId: string;
+    role: MembershipRole;
+    tierCategory: "fixed" | "sinking";
+    orderedIds: string[];
+  }): Promise<void> {
+    if (!canConfigure(input.role)) {
+      throw new Error("Forbidden");
+    }
+    await withTransaction(
+      { tenantId: input.tenantId, userId: input.userId },
+      async (client) => {
+        const existing = await client.query<{ id: string }>(
+          `SELECT id FROM envelopes
+           WHERE tenant_id = $1 AND tier_category = $2
+           ORDER BY priority_order ASC`,
+          [input.tenantId, input.tierCategory],
+        );
+        const existingIds = existing.rows.map((r) => r.id);
+        if (
+          existingIds.length !== input.orderedIds.length ||
+          [...existingIds].sort().join() !== [...input.orderedIds].sort().join()
+        ) {
+          throw new Error("Validation failed");
+        }
+
+        // Two-phase update avoids unique (tenant, tier, priority) collisions.
+        for (let i = 0; i < input.orderedIds.length; i += 1) {
+          await client.query(
+            `UPDATE envelopes SET priority_order = $1
+             WHERE id = $2 AND tenant_id = $3`,
+            [-(i + 1), input.orderedIds[i], input.tenantId],
+          );
+        }
+        for (let i = 0; i < input.orderedIds.length; i += 1) {
+          await client.query(
+            `UPDATE envelopes SET priority_order = $1
+             WHERE id = $2 AND tenant_id = $3`,
+            [i + 1, input.orderedIds[i], input.tenantId],
+          );
+        }
+
+        await runEvaluationPipeline(client, {
+          tenantId: input.tenantId,
+          userId: input.userId,
+          trigger: "sync",
+        });
+      },
+    );
+  }
+
   async updateEnvelope(input: {
     tenantId: string;
     userId: string;
