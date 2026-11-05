@@ -1,6 +1,7 @@
 export const queryKeys = {
   me: {
     all: ["me"] as const,
+    invites: () => [...queryKeys.me.all, "invites"] as const,
   },
   allowance: {
     all: ["allowance"] as const,

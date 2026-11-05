@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { firstOccurrenceOnOrAfter } from "@/lib/calendar/next-occurrence";
 import { rrulesForCadence } from "@/lib/utils/cadence";
 
 describe("rrulesForCadence", () => {
@@ -7,6 +8,22 @@ describe("rrulesForCadence", () => {
       "FREQ=MONTHLY;BYMONTHDAY=1",
       "FREQ=MONTHLY;BYMONTHDAY=15",
     ]);
+  });
+
+  it("uses BYMONTHDAY=-1 for the last day and keeps it second", () => {
+    expect(rrulesForCadence("Twice a month", { firstDay: -1, secondDay: 15 })).toEqual([
+      "FREQ=MONTHLY;BYMONTHDAY=15",
+      "FREQ=MONTHLY;BYMONTHDAY=-1",
+    ]);
+    expect(
+      rrulesForCadence("Every month", { firstDay: 1, secondDay: 15, monthDay: -1 }),
+    ).toEqual(["FREQ=MONTHLY;BYMONTHDAY=-1"]);
+  });
+
+  it("reads the last-day rule as the last day of each month", () => {
+    const [rule] = rrulesForCadence("Every month", { firstDay: 1, secondDay: 15, monthDay: -1 });
+    expect(firstOccurrenceOnOrAfter(rule, "2027-02-10")).toBe("2027-02-28");
+    expect(firstOccurrenceOnOrAfter(rule, "2028-02-10")).toBe("2028-02-29");
   });
 
   it("creates a single rule for every other cadence", () => {

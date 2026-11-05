@@ -38,6 +38,19 @@ export class AllowanceService extends BaseService {
         [tenantId],
       );
 
+      const spending = await client.query<{ balance: string }>(
+        `SELECT current_balance::text AS balance FROM envelopes
+         WHERE tenant_id = $1 AND tier_category = 'discretionary'`,
+        [tenantId],
+      );
+
+      const purchases = await client.query<{ has_purchase: boolean }>(
+        `SELECT EXISTS (
+           SELECT 1 FROM transactions WHERE tenant_id = $1 AND amount < 0
+         ) AS has_purchase`,
+        [tenantId],
+      );
+
       const breach = await client.query<{ forecast_date: string }>(
         `SELECT forecast_date::text FROM forecast_days
          WHERE tenant_id = $1 AND status = 'breach' AND day_offset >= 1
@@ -64,6 +77,8 @@ export class AllowanceService extends BaseService {
         bankTotalCents: toCents(bank.rows[0]?.total ?? "0"),
         keepAtLeastCents: toCents(tenant.rows[0]?.liquidity_floor ?? "0"),
         forecastStale: row.forecast_stale,
+        spendingBalanceCents: toCents(spending.rows[0]?.balance ?? "0"),
+        hasPurchaseHistory: purchases.rows[0]?.has_purchase ?? false,
       };
     });
   }

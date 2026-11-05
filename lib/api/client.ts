@@ -14,6 +14,7 @@ import type {
   InviteBody,
   InviteResult,
   PeopleListResponse,
+  PendingInvitesResponse,
 } from "@/types/people/people.types";
 import type {
   EnvelopeMutationResult,
@@ -80,6 +81,7 @@ async function apiFetch<T>(path: string, init?: RequestInit, options?: ApiClient
 
 export const api = {
   getMe: () => apiFetch<MeDto>("/api/v1/me"),
+  getMyInvites: () => apiFetch<PendingInvitesResponse>("/api/v1/me/invites"),
   selectTenant: (tenantId: string) =>
     apiFetch<{ tenantId: string }>("/api/v1/me/tenant", {
       method: "POST",

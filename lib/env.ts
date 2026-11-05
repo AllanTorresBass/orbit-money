@@ -8,6 +8,9 @@ const envSchema = z
     AUTH_SECRET: z.string().optional(),
     CRON_SECRET: z.string().optional(),
     ALLOW_DEV_HEADER_AUTH: z.enum(["true", "false"]).optional(),
+    NEXT_PUBLIC_ALLOW_DEV_HEADER_AUTH: z.enum(["true", "false"]).optional(),
+    AUTH_RESEND_KEY: z.string().optional(),
+    AUTH_EMAIL_FROM: z.string().email().optional(),
   })
   .superRefine((value, ctx) => {
     if (value.NODE_ENV === "production" && (!value.AUTH_SECRET || value.AUTH_SECRET.length < 16)) {
@@ -22,6 +25,13 @@ const envSchema = z
         code: "custom",
         path: ["ALLOW_DEV_HEADER_AUTH"],
         message: "ALLOW_DEV_HEADER_AUTH must not be enabled in production",
+      });
+    }
+    if (value.NODE_ENV === "production" && value.NEXT_PUBLIC_ALLOW_DEV_HEADER_AUTH === "true") {
+      ctx.addIssue({
+        code: "custom",
+        path: ["NEXT_PUBLIC_ALLOW_DEV_HEADER_AUTH"],
+        message: "NEXT_PUBLIC_ALLOW_DEV_HEADER_AUTH must not be enabled in production",
       });
     }
   });
@@ -42,6 +52,9 @@ export function getEnv(): Env {
     AUTH_SECRET: process.env.AUTH_SECRET,
     CRON_SECRET: process.env.CRON_SECRET,
     ALLOW_DEV_HEADER_AUTH: process.env.ALLOW_DEV_HEADER_AUTH,
+    NEXT_PUBLIC_ALLOW_DEV_HEADER_AUTH: process.env.NEXT_PUBLIC_ALLOW_DEV_HEADER_AUTH,
+    AUTH_RESEND_KEY: process.env.AUTH_RESEND_KEY,
+    AUTH_EMAIL_FROM: process.env.AUTH_EMAIL_FROM,
   });
 
   if (!parsed.success) {

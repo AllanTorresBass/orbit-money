@@ -12,6 +12,7 @@ import { useMe } from "@/hooks/use-allowance";
 import { isApiError } from "@/lib/api/api-error";
 import { isClientDevHeaderAuthEnabled } from "@/lib/auth/dev-header-auth";
 import { cn } from "@/lib/utils";
+import { roleLabel } from "@/lib/utils/display-labels";
 import { fetchErrorMessage } from "@/lib/utils/handle-fetch-error";
 
 export interface YouScreenProps {
@@ -46,7 +47,7 @@ export function YouScreen({ className }: YouScreenProps) {
           <p>
             <span className="text-[15px] text-[var(--orbit-secondary)]">Role</span>
             <br />
-            {me.data.role}
+            {roleLabel(me.data.role)}
           </p>
           <p>
             <span className="text-[15px] text-[var(--orbit-secondary)]">Household</span>
@@ -67,6 +68,17 @@ export function YouScreen({ className }: YouScreenProps) {
       {me.data ? <PeopleSection me={me.data} /> : null}
 
       {canManage ? <KeepAtLeastSection /> : null}
+
+      {me.data?.role === "owner" ? (
+        <section className="mt-10" aria-labelledby="you-billing">
+          <h2 id="you-billing" className="text-[15px] font-medium text-[var(--orbit-ink)]">
+            Billing
+          </h2>
+          <p className="mt-2 text-[15px] text-[var(--orbit-secondary)]">
+            Only the owner sees this. Orbit does not charge anything yet.
+          </p>
+        </section>
+      ) : null}
 
       <section className="mt-12 border-t border-[var(--orbit-line)] pt-6">
         {isClientDevHeaderAuthEnabled() ? (

@@ -8,6 +8,9 @@ export interface QueuedPurchase {
 
 const STORAGE_KEY = "orbit.offline.purchases";
 
+/** Fired on this tab whenever the queue changes. Other tabs fire the native `storage` event. */
+export const PURCHASE_QUEUE_EVENT = "orbit:purchase-queue";
+
 function readQueue(): QueuedPurchase[] {
   if (typeof window === "undefined") return [];
   try {
@@ -24,6 +27,7 @@ function readQueue(): QueuedPurchase[] {
 function writeQueue(items: QueuedPurchase[]): void {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
+  window.dispatchEvent(new Event(PURCHASE_QUEUE_EVENT));
 }
 
 function isQueuedPurchase(value: unknown): value is QueuedPurchase {

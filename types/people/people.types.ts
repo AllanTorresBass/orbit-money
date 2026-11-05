@@ -48,3 +48,16 @@ export interface InviteResult {
   userId: string;
   status: MembershipStatus;
 }
+
+/** A household the signed-in person was invited to and has not joined yet. */
+export interface PendingInviteDto {
+  tenantId: string;
+  tenantName: string;
+  /** Who is asking. The household owner; Orbit does not store the sender. Null when unknown. */
+  inviterName: string | null;
+  role: PersonRole;
+}
+
+export interface PendingInvitesResponse {
+  invites: PendingInviteDto[];
+}

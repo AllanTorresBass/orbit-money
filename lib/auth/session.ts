@@ -5,6 +5,7 @@ import { withTransaction } from "@/lib/db/connection";
 import type { MembershipRole } from "@/lib/auth/permissions";
 import { TenantSelectionRequiredError } from "@/lib/auth/tenant-selection";
 import type { TenantChoice } from "@/types/me/me.types";
+import type { TenantType } from "@/types/tenant/tenant.types";
 
 export type { MembershipRole } from "@/lib/auth/permissions";
 export {
@@ -24,6 +25,7 @@ export interface AppSession {
   email: string;
   name: string;
   tenantName: string;
+  tenantType: TenantType;
 }
 
 async function loadMembership(userId: string, tenantId: string): Promise<AppSession | null> {
@@ -34,9 +36,10 @@ async function loadMembership(userId: string, tenantId: string): Promise<AppSess
       email: string;
       name: string;
       tenant_name: string;
+      tenant_type: TenantType;
       status: string;
     }>(
-      `SELECT m.role, m.status, u.email, u.name, t.name AS tenant_name
+      `SELECT m.role, m.status, u.email, u.name, t.name AS tenant_name, t.tenant_type
        FROM tenant_memberships m
        JOIN users u ON u.id = m.user_id
        JOIN tenants t ON t.id = m.tenant_id
@@ -56,6 +59,7 @@ async function loadMembership(userId: string, tenantId: string): Promise<AppSess
       email: row.email,
       name: row.name,
       tenantName: row.tenant_name,
+      tenantType: row.tenant_type,
     };
   });
 }

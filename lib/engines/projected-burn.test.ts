@@ -49,4 +49,34 @@ describe("buildProjectedBurnByDate", () => {
     expect(burnByDate["2026-03-16"]).toBe(4250);
   });
 
+  it("clamps post-payday burn by per-cycle O_unfunded", () => {
+    const burnByDate = buildProjectedBurnByDate({
+      today: "2026-03-01",
+      dates: ["2026-03-01", "2026-03-02", "2026-03-15", "2026-03-16"],
+      initialBurnCents: 500,
+      envelopes,
+      dueAmountByEnvelopeId: { rent: 150_000 },
+      schedules: [
+        {
+          envelopeId: "rent",
+          amountCents: 150_000,
+          nextDueDate: "2026-03-20",
+          direction: "outflow",
+        },
+        {
+          envelopeId: null,
+          amountCents: 14_000,
+          nextDueDate: "2026-03-22",
+          direction: "outflow",
+        },
+      ],
+      eventsByDate: {
+        "2026-03-15": { inflowCents: 200_000, outflowCents: 0 },
+      },
+      paydayDates: ["2026-03-15", "2026-03-29"],
+    });
+
+    // Residual disc 59500 − O_unfunded 14000 = 45500; floor(45500/14)=3250
+    expect(burnByDate["2026-03-15"]).toBe(3_250);
+  });
 });

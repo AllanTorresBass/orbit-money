@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { PoolClient } from "pg";
 import { DateTime } from "luxon";
 import { RRule, rrulestr } from "rrule";
@@ -14,12 +15,17 @@ import { absorbDebit, allocateInflow } from "@/lib/engines/waterfall";
 import { logger } from "@/lib/logger";
 import { fromCents, toCents } from "@/lib/money/numeric";
 import {
-  advanceDueDates,
   advanceInflowsDueToday,
+  advanceMidnightDueDates,
   applyCycleEndSweep,
   isCycleEndDay,
 } from "@/lib/pipeline/cycle-boundary";
-import { emitPipelineStep } from "@/lib/pipeline/telemetry";
+import {
+  finishPipelineRun,
+  recordPipelineStep,
+  startPipelineRun,
+  type PipelineRunContext,
+} from "@/lib/pipeline/telemetry";
 import type { EnvelopeState } from "@/types/envelope/envelope.types";
 import type { PipelineRunSummary } from "@/types/pipeline/pipeline.types";
 
@@ -31,6 +37,8 @@ export interface PipelineInput {
   trigger: "sync" | "midnight";
   transactionId?: string;
   asOfDate?: string;
+  cronBatchId?: string;
+  runId?: string;
 }
 
 function mapEnvelope(row: {
@@ -217,13 +225,45 @@ export async function runEvaluationPipeline(
   const today = input.asOfDate ?? todayInTimezone(tenant.timezone);
   const cMinCents = toCents(tenant.liquidity_floor);
   const runStarted = Date.now();
+  const runId = input.runId ?? randomUUID();
+  const ctx: PipelineRunContext = {
+    runId,
+    tenantId: input.tenantId,
+    trigger: input.trigger,
+    asOfDate: today,
+    cronBatchId: input.cronBatchId,
+  };
+
+  await startPipelineRun(client, {
+    runId,
+    tenantId: input.tenantId,
+    trigger: input.trigger,
+    asOfDate: today,
+    transactionId: input.transactionId,
+    cronBatchId: input.cronBatchId,
+  });
+
+  let envelopes = await loadEnvelopes(client, input.tenantId);
+  let scheduleRows = await loadScheduleDueRows(client, input.tenantId);
 
   // Step 1 — settle unsettled transactions
   const settleStarted = Date.now();
   let settleCount = 0;
+  let idempotencyHit = false;
   if (input.transactionId) {
-    await settleTransaction(client, input.tenantId, input.transactionId, today);
-    settleCount = 1;
+    const settled = await settleTransaction(client, {
+      tenantId: input.tenantId,
+      transactionId: input.transactionId,
+      today,
+      envelopes,
+      scheduleRows,
+    });
+    settleCount = settled.settled ? 1 : 0;
+    idempotencyHit = settled.idempotencyHit;
+    if (settled.settled) {
+      envelopes = await loadEnvelopes(client, input.tenantId);
+      scheduleRows = await loadScheduleDueRows(client, input.tenantId);
+    }
   } else {
     const unsettled = await client.query<{ id: string }>(
       `SELECT id FROM transactions
@@ -232,28 +272,37 @@ export async function runEvaluationPipeline(
       [input.tenantId],
     );
     for (const row of unsettled.rows) {
-      await settleTransaction(client, input.tenantId, row.id, today);
-      settleCount += 1;
+      const settled = await settleTransaction(client, {
+        tenantId: input.tenantId,
+        transactionId: row.id,
+        today,
+        envelopes,
+        scheduleRows,
+      });
+      if (settled.settled) {
+        settleCount += 1;
+        envelopes = await loadEnvelopes(client, input.tenantId);
+        scheduleRows = await loadScheduleDueRows(client, input.tenantId);
+      }
+      if (settled.idempotencyHit) idempotencyHit = true;
     }
   }
-  emitPipelineStep({
-    trigger: input.trigger,
-    tenantId: input.tenantId,
-    asOfDate: today,
-    step: "settle",
+  await recordPipelineStep(client, ctx, "settle", {
     centsIn: settleCount,
+    idempotencyHit,
     durationMs: Date.now() - settleStarted,
   });
-
-  let envelopes = await loadEnvelopes(client, input.tenantId);
   let discretionary = envelopes.find((e) => e.tierCategory === "discretionary");
   if (!discretionary) {
     throw new Error("Missing discretionary envelope");
   }
 
   const peekNextPayday = await nextInflowDate(client, input.tenantId, today);
+  const settledInflowToday = await hasSettledInflowToday(client, input.tenantId, today);
 
   // Midnight-only cycle boundary (module 8): sweep on the last day, then advance dues.
+  // Never advance unsettled payday inflows (D8).
+  let sweepIncomplete = false;
   if (input.trigger === "midnight") {
     if (isCycleEndDay(today, peekNextPayday)) {
       logger.info("Pipeline cycle end", {
@@ -262,23 +311,23 @@ export async function runEvaluationPipeline(
         nextPayday: peekNextPayday,
         discCents: discretionary.currentBalanceCents,
       });
-      await applyCycleEndSweep(client, {
+      const sweep = await applyCycleEndSweep(client, {
         tenantId: input.tenantId,
         cycleEndDate: today,
         discretionary,
         envelopes,
       });
+      sweepIncomplete = sweep.incomplete;
       envelopes = await loadEnvelopes(client, input.tenantId);
       discretionary = envelopes.find((e) => e.tierCategory === "discretionary");
       if (!discretionary) {
         throw new Error("Missing discretionary envelope");
       }
     }
-    await advanceDueDates(client, input.tenantId, today);
+    await advanceMidnightDueDates(client, input.tenantId, today, settledInflowToday);
   }
 
   let nextPayday = await nextInflowDate(client, input.tenantId, today);
-  const settledInflowToday = await hasSettledInflowToday(client, input.tenantId, today);
 
   // D8 — payday today and not yet settled → N_p = 1; after settle, schedules already advanced.
   const inflowIsTodayAndUnsettled = nextPayday === today && !settledInflowToday;
@@ -300,10 +349,11 @@ export async function runEvaluationPipeline(
   );
   const eDiscActualCents = toCents(spentTodayRes.rows[0]?.spent ?? "0");
 
-  const scheduleRows = await loadScheduleDueRows(client, input.tenantId);
-  // For O_unfunded and dues: when payday is today and unsettled, the window ends at today
-  // (nothing after today is "before next inflow" in the half-open sense of N_p=1).
-  const dueWindowEnd = inflowIsTodayAndUnsettled ? today : nextPayday;
+  // Payday morning still funds bills due today through the following payday (exclusive).
+  let dueWindowEnd = nextPayday;
+  if (inflowIsTodayAndUnsettled) {
+    dueWindowEnd = (await peekFollowingInflow(client, input.tenantId, today)) ?? nextPayday;
+  }
   const oUnfundedCents = computeUnfundedCents({
     envelopes,
     schedules: scheduleRows,
@@ -318,6 +368,7 @@ export async function runEvaluationPipeline(
   });
 
   // Morning rate uses balance before today's disc spend for opening; D7 uses current B_disc for overspend burn.
+  const rateStarted = Date.now();
   const rate = computeDailyRate({
     discretionaryBalanceCents: discretionary.currentBalanceCents + eDiscActualCents,
     oUnfundedCents,
@@ -325,17 +376,14 @@ export async function runEvaluationPipeline(
     eDiscActualCents,
   });
 
-  emitPipelineStep({
-    trigger: input.trigger,
-    tenantId: input.tenantId,
-    asOfDate: today,
-    step: "rate",
+  await recordPipelineStep(client, ctx, "rate", {
     nP,
     oUnfundedCents,
     sDailyCents: rate?.sDailyCents ?? null,
     sTodayCents: rate?.sTodayCents ?? null,
     centsIn: discretionary.currentBalanceCents,
     centsOut: eDiscActualCents,
+    durationMs: Date.now() - rateStarted,
   });
 
   const cashRes = await client.query<{ total: string }>(
@@ -365,32 +413,49 @@ export async function runEvaluationPipeline(
       tenantId: input.tenantId,
       error: error instanceof Error ? error.message : "unknown",
     });
+    const prior = await client.query<{ s_daily: string; s_today: string }>(
+      `SELECT s_daily::text, s_today::text FROM allowance_snapshots WHERE tenant_id = $1`,
+      [input.tenantId],
+    );
     await client.query(
       `UPDATE allowance_snapshots
        SET forecast_stale = TRUE, computed_at = NOW()
        WHERE tenant_id = $1`,
       [input.tenantId],
     );
-    emitPipelineStep({
-      trigger: input.trigger,
-      tenantId: input.tenantId,
-      asOfDate: today,
-      step: "publish",
+    const priorDaily = prior.rows[0] ? toCents(prior.rows[0].s_daily) : null;
+    const priorToday = prior.rows[0] ? toCents(prior.rows[0].s_today) : null;
+    await recordPipelineStep(client, ctx, "publish", {
       nP,
       oUnfundedCents,
-      sDailyCents: rate?.sDailyCents ?? null,
-      sTodayCents: rate?.sTodayCents ?? null,
+      sDailyCents: priorDaily,
+      sTodayCents: priorToday,
       forecastStale: true,
+      sweepIncomplete,
       durationMs: Date.now() - runStarted,
     });
+    await finishPipelineRun(client, {
+      runId,
+      status: "stale",
+      forecastStale: true,
+      cutsApplied: 0,
+      oUnfundedCents,
+      sDailyCents: priorDaily,
+      sTodayCents: priorToday,
+      nP,
+      sweepIncomplete,
+      errorCode: "holiday_calendar_missing",
+    });
     return {
-      sTodayCents: rate?.sTodayCents ?? null,
-      sDailyCents: rate?.sDailyCents ?? null,
+      runId,
+      sTodayCents: priorToday,
+      sDailyCents: priorDaily,
       oUnfundedCents,
       nP,
       mitigated: false,
       forecastStale: true,
       cutsApplied: 0,
+      sweepIncomplete,
     };
   }
 
@@ -425,6 +490,7 @@ export async function runEvaluationPipeline(
       initialBurnCents,
       envelopes,
       dueAmountByEnvelopeId,
+      schedules: scheduleRows,
       eventsByDate,
       paydayDates: futurePaydays,
     });
@@ -445,11 +511,7 @@ export async function runEvaluationPipeline(
     burnForDay,
     cMinCents,
   });
-  emitPipelineStep({
-    trigger: input.trigger,
-    tenantId: input.tenantId,
-    asOfDate: today,
-    step: "project",
+  await recordPipelineStep(client, ctx, "project", {
     centsIn: burn,
     durationMs: Date.now() - projectStarted,
   });
@@ -461,17 +523,16 @@ export async function runEvaluationPipeline(
   let breachDate: string | null = null;
   let gapCents: number | null = null;
 
+  const floorStarted = Date.now();
   const firstBreach = series.find((d) => d.dayOffset >= 1 && d.status === "breach");
-  emitPipelineStep({
-    trigger: input.trigger,
-    tenantId: input.tenantId,
-    asOfDate: today,
-    step: "floor_check",
+  await recordPipelineStep(client, ctx, "floor_check", {
     breachDate: firstBreach?.forecastDate ?? null,
     gapCents: firstBreach ? cMinCents - firstBreach.balanceCents : null,
+    durationMs: Date.now() - floorStarted,
   });
 
   if (rate) {
+    const cutStarted = Date.now();
     const mitigation = mitigateBreach({
       series,
       rateCents: burn,
@@ -505,26 +566,26 @@ export async function runEvaluationPipeline(
       if (rate.sTodayCents >= 0) {
         publishedToday = mitigation.rateCents + rate.remainderCents - eDiscActualCents;
       }
-      emitPipelineStep({
-        trigger: input.trigger,
-        tenantId: input.tenantId,
-        asOfDate: today,
-        step: "cut",
+      await recordPipelineStep(client, ctx, "cut", {
         cutsApplied: mitigation.cutsApplied,
         centsOut: mitigation.rateCents,
         breachDate,
         gapCents,
+        durationMs: Date.now() - cutStarted,
       });
     }
   }
 
   await client.query(`DELETE FROM forecast_days WHERE tenant_id = $1`, [input.tenantId]);
-  for (const day of series) {
-    await client.query(
-      `INSERT INTO forecast_days
-         (tenant_id, day_offset, forecast_date, balance, inflow, scheduled_outflow, assumed_burn, status)
-       VALUES ($1, $2, $3::date, $4, $5, $6, $7, $8)`,
-      [
+  if (series.length > 0) {
+    const values: unknown[] = [];
+    const placeholders: string[] = [];
+    let i = 1;
+    for (const day of series) {
+      placeholders.push(
+        `($${i++}, $${i++}, $${i++}::date, $${i++}, $${i++}, $${i++}, $${i++}, $${i++})`,
+      );
+      values.push(
         input.tenantId,
         day.dayOffset,
         day.forecastDate,
@@ -533,7 +594,13 @@ export async function runEvaluationPipeline(
         fromCents(day.scheduledOutflowCents),
         fromCents(day.assumedBurnCents),
         day.status,
-      ],
+      );
+    }
+    await client.query(
+      `INSERT INTO forecast_days
+         (tenant_id, day_offset, forecast_date, balance, inflow, scheduled_outflow, assumed_burn, status)
+       VALUES ${placeholders.join(", ")}`,
+      values,
     );
   }
 
@@ -568,11 +635,7 @@ export async function runEvaluationPipeline(
     );
   }
 
-  emitPipelineStep({
-    trigger: input.trigger,
-    tenantId: input.tenantId,
-    asOfDate: today,
-    step: "publish",
+  await recordPipelineStep(client, ctx, "publish", {
     nP,
     oUnfundedCents,
     sDailyCents: rate ? publishedDaily : null,
@@ -581,10 +644,24 @@ export async function runEvaluationPipeline(
     breachDate,
     gapCents,
     forecastStale: false,
+    sweepIncomplete,
     durationMs: Date.now() - runStarted,
   });
 
+  await finishPipelineRun(client, {
+    runId,
+    status: "ok",
+    forecastStale: false,
+    cutsApplied,
+    oUnfundedCents,
+    sDailyCents: rate ? publishedDaily : null,
+    sTodayCents: rate ? publishedToday : null,
+    nP,
+    sweepIncomplete,
+  });
+
   return {
+    runId,
     sTodayCents: rate ? publishedToday : null,
     sDailyCents: rate ? publishedDaily : null,
     oUnfundedCents,
@@ -592,15 +669,21 @@ export async function runEvaluationPipeline(
     mitigated,
     forecastStale: false,
     cutsApplied,
+    sweepIncomplete,
   };
 }
 
 async function settleTransaction(
   client: PoolClient,
-  tenantId: string,
-  transactionId: string,
-  today: string,
-): Promise<void> {
+  input: {
+    tenantId: string;
+    transactionId: string;
+    today: string;
+    envelopes: EnvelopeState[];
+    scheduleRows: ScheduleDueRow[];
+  },
+): Promise<{ settled: boolean; idempotencyHit: boolean }> {
+  const { tenantId, transactionId, today, envelopes, scheduleRows } = input;
   const txnRes = await client.query<{
     id: string;
     amount: string;
@@ -614,21 +697,18 @@ async function settleTransaction(
     [transactionId, tenantId],
   );
   const txn = txnRes.rows[0];
-  if (!txn) return;
+  if (!txn) return { settled: false, idempotencyHit: false };
   if (txn.settled_at) {
     logger.info("Settlement skipped — already settled", {
       tenantId,
       transactionId,
     });
-    return;
+    return { settled: false, idempotencyHit: true };
   }
 
   const amountCents = toCents(txn.amount);
-  const envelopes = await loadEnvelopes(client, tenantId);
-  const scheduleRows = await loadScheduleDueRows(client, tenantId);
 
   if (amountCents > 0) {
-    // Waterfall funds bills before the following payday (after this deposit).
     let dueWindowEnd = await nextInflowDate(client, tenantId, today);
     if (dueWindowEnd === today || dueWindowEnd === null) {
       dueWindowEnd = await peekFollowingInflow(client, tenantId, today);
@@ -697,8 +777,9 @@ async function settleTransaction(
     [transactionId, tenantId],
   );
 
-  // D8 — after payday settles, count forward to the following inflow.
   if (amountCents > 0 && txn.booked_date === today) {
     await advanceInflowsDueToday(client, tenantId, today);
   }
+
+  return { settled: true, idempotencyHit: false };
 }

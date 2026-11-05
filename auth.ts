@@ -1,6 +1,9 @@
 import NextAuth from "next-auth";
+import type { NextAuthConfig } from "next-auth";
 import Credentials from "next-auth/providers/credentials";
+import Resend from "next-auth/providers/resend";
 import { withTransaction } from "@/lib/db/connection";
+import { logger } from "@/lib/logger";
 
 declare module "next-auth" {
   interface Session {
@@ -20,51 +23,109 @@ declare module "@auth/core/jwt" {
   }
 }
 
-export const { handlers, auth, signIn, signOut } = NextAuth({
-  providers: [
-    Credentials({
-      credentials: {
-        email: { label: "Email", type: "email" },
-      },
-      async authorize(credentials) {
-        const email = typeof credentials.email === "string" ? credentials.email.trim().toLowerCase() : "";
-        if (!email) return null;
+async function resolveUserTenant(email: string): Promise<{
+  id: string;
+  email: string;
+  name: string;
+  tenantId?: string;
+} | null> {
+  return withTransaction(null, async (client) => {
+    await client.query("SELECT set_config('app.bypass_rls', 'on', true)");
+    const user = await client.query<{ id: string; name: string; email: string }>(
+      `SELECT id, name, email FROM users WHERE email = $1`,
+      [email],
+    );
+    const row = user.rows[0];
+    if (!row) return null;
 
-        return withTransaction(null, async (client) => {
-          await client.query("SELECT set_config('app.bypass_rls', 'on', true)");
-          const user = await client.query<{ id: string; name: string; email: string }>(
-            `SELECT id, name, email FROM users WHERE email = $1`,
-            [email],
-          );
-          const row = user.rows[0];
-          if (!row) return null;
+    const memberships = await client.query<{ tenant_id: string }>(
+      `SELECT tenant_id FROM tenant_memberships
+       WHERE user_id = $1 AND status = 'active'
+       ORDER BY created_at ASC`,
+      [row.id],
+    );
+    const tenantId = memberships.rows.length === 1 ? memberships.rows[0].tenant_id : undefined;
 
-          const memberships = await client.query<{ tenant_id: string }>(
-            `SELECT tenant_id FROM tenant_memberships
-             WHERE user_id = $1 AND status = 'active'
-             ORDER BY created_at ASC`,
-            [row.id],
-          );
-          // Exactly one household is unambiguous. With several, leave the tenant
-          // unset so the API asks the person to choose instead of picking one.
-          const tenantId =
-            memberships.rows.length === 1 ? memberships.rows[0].tenant_id : undefined;
+    return {
+      id: row.id,
+      email: row.email,
+      name: row.name,
+      tenantId,
+    };
+  });
+}
 
-          return {
-            id: row.id,
-            email: row.email,
-            name: row.name,
-            tenantId,
-          };
+const providers: NextAuthConfig["providers"] = [
+  Credentials({
+    id: "credentials",
+    credentials: {
+      email: { label: "Email", type: "email" },
+    },
+    async authorize(credentials) {
+      const email =
+        typeof credentials.email === "string" ? credentials.email.trim().toLowerCase() : "";
+      if (!email) return null;
+      return resolveUserTenant(email);
+    },
+  }),
+];
+
+if (process.env.AUTH_RESEND_KEY && process.env.AUTH_EMAIL_FROM) {
+  providers.push(
+    Resend({
+      apiKey: process.env.AUTH_RESEND_KEY,
+      from: process.env.AUTH_EMAIL_FROM,
+      async sendVerificationRequest({ identifier, url, provider }) {
+        const { host } = new URL(url);
+        const res = await fetch("https://api.resend.com/emails", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${provider.apiKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            from: provider.from,
+            to: identifier,
+            subject: `Sign in to Orbit (${host})`,
+            text: `Sign in to Orbit\n${url}\n\n`,
+            html: `<p><a href="${url}">Sign in to Orbit</a></p>`,
+          }),
         });
+        if (!res.ok) {
+          const body = await res.text();
+          logger.error("Resend magic-link failed", { status: res.status, body });
+          throw new Error("Email send failed");
+        }
       },
     }),
-  ],
+  );
+}
+
+export const { handlers, auth, signIn, signOut } = NextAuth({
+  providers,
   callbacks: {
+    async signIn({ user, email }) {
+      // Magic-link: only existing users (unknown → Create on the sign-in page).
+      if (email?.verificationRequest) {
+        return true;
+      }
+      if (user?.email) {
+        const existing = await resolveUserTenant(user.email.toLowerCase());
+        return existing !== null;
+      }
+      return true;
+    },
     async jwt({ token, user }) {
       if (user) {
         token.userId = user.id;
         token.tenantId = user.tenantId;
+      }
+      if ((!token.userId || token.tenantId === undefined) && token.email) {
+        const existing = await resolveUserTenant(String(token.email).toLowerCase());
+        if (existing) {
+          token.userId = existing.id;
+          token.tenantId = existing.tenantId;
+        }
       }
       return token;
     },
@@ -79,6 +140,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   },
   pages: {
     signIn: "/signin",
+    error: "/signin",
   },
   session: { strategy: "jwt" },
   trustHost: true,

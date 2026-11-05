@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { AddEnvelopeSheet } from "@/components/plan/add-envelope-sheet";
 import { EditEnvelopeSheet } from "@/components/plan/edit-envelope-sheet";
+import { PlanSkeleton } from "@/components/plan/plan-skeleton";
 import { SpendingExplainSheet } from "@/components/plan/spending-explain-sheet";
 import { TenantPicker } from "@/components/shell/tenant-picker";
 import { useMe, usePlan } from "@/hooks/use-allowance";
@@ -46,12 +47,7 @@ export function PlanScreen({ className }: PlanScreenProps) {
   }
 
   if (plan.isLoading) {
-    return (
-      <div className={cn("mx-auto max-w-md animate-pulse px-6 pt-8", className)}>
-        <div className="h-8 w-28 rounded bg-[var(--orbit-line)]" />
-        <div className="mt-8 h-24 w-full rounded bg-[var(--orbit-line)]" />
-      </div>
-    );
+    return <PlanSkeleton className={className} />;
   }
 
   if (isApiError(plan.error) && plan.error.code === "tenant_selection_required") {

@@ -1,6 +1,9 @@
 import { z } from "zod";
 import { isoDateSchema } from "@/types/forecast/forecast.types";
 
+export const tenantTypeSchema = z.enum(["individual", "household", "organization"]);
+export type TenantType = z.infer<typeof tenantTypeSchema>;
+
 /**
  * Create body. A single payday sends `rrule`; "twice a month" sends `rrules`
  * (one monthly rule per chosen day). Both normalize to `rrules`.
@@ -8,7 +11,7 @@ import { isoDateSchema } from "@/types/forecast/forecast.types";
 export const createTenantBodySchema = z
   .object({
     name: z.string().trim().min(1).max(100),
-    tenantType: z.enum(["individual", "household", "organization"]),
+    tenantType: tenantTypeSchema,
     ownerEmail: z.string().email(),
     ownerName: z.string().trim().min(1).max(100),
     timezone: z.string().min(1).default("America/New_York"),

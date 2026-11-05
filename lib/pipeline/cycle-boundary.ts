@@ -4,7 +4,7 @@ import { RRule, rrulestr } from "rrule";
 import { addDays } from "@/lib/calendar/dates";
 import { sweepDiscretionaryAtCycleEnd } from "@/lib/engines/waterfall";
 import { logger } from "@/lib/logger";
-import { fromCents } from "@/lib/money/numeric";
+import { fromCents, toCents } from "@/lib/money/numeric";
 import type { EnvelopeState } from "@/types/envelope/envelope.types";
 
 function toRRuleDate(iso: string): Date {
@@ -23,8 +23,9 @@ export function isCycleEndDay(today: string, nextPayday: string | null): boolean
 }
 
 /**
- * Move leftover discretionary into sinking funds (D6). Idempotent via cycle_sweeps.
- * Returns discretionary balance cents after the sweep.
+ * Move leftover discretionary into sinking funds (D6).
+ * Inserts a pending sweep row, applies moves, then marks applied.
+ * Retries finish a pending row; applied rows are no-ops that report stored incomplete.
  */
 export async function applyCycleEndSweep(
   client: PoolClient,
@@ -52,6 +53,30 @@ export async function applyCycleEndSweep(
     };
   }
 
+  const existing = await client.query<{
+    amount: string;
+    incomplete: boolean;
+    status: string;
+  }>(
+    `SELECT amount::text, incomplete, status
+     FROM cycle_sweeps
+     WHERE tenant_id = $1 AND cycle_end_date = $2::date
+     FOR UPDATE`,
+    [input.tenantId, input.cycleEndDate],
+  );
+
+  if (existing.rows[0]?.status === "applied") {
+    logger.info("Cycle sweep already applied", {
+      tenantId: input.tenantId,
+      cycleEndDate: input.cycleEndDate,
+    });
+    return {
+      sweptCents: 0,
+      incomplete: existing.rows[0].incomplete,
+      discretionaryBalanceCents: input.discretionary.currentBalanceCents,
+    };
+  }
+
   const plan = sweepDiscretionaryAtCycleEnd({
     discretionaryBalanceCents: input.discretionary.currentBalanceCents,
     discretionaryId: input.discretionary.id,
@@ -60,24 +85,33 @@ export async function applyCycleEndSweep(
   });
   const totalCents = plan.moves.reduce((sum, m) => sum + m.amountCents, 0);
 
-  const inserted = await client.query<{ tenant_id: string }>(
-    `INSERT INTO cycle_sweeps (tenant_id, cycle_end_date, amount, destination_envelope_id, incomplete)
-     VALUES ($1, $2::date, $3, $4, $5)
-     ON CONFLICT (tenant_id, cycle_end_date) DO NOTHING
-     RETURNING tenant_id`,
-    [input.tenantId, input.cycleEndDate, fromCents(totalCents), destinationId, plan.incomplete],
-  );
-
-  if (inserted.rows.length === 0) {
-    logger.info("Cycle sweep already applied", {
-      tenantId: input.tenantId,
-      cycleEndDate: input.cycleEndDate,
-    });
-    return {
-      sweptCents: 0,
-      incomplete: false,
-      discretionaryBalanceCents: input.discretionary.currentBalanceCents,
-    };
+  if (!existing.rows[0]) {
+    await client.query(
+      `INSERT INTO cycle_sweeps
+         (tenant_id, cycle_end_date, amount, destination_envelope_id, incomplete, status)
+       VALUES ($1, $2::date, $3, $4, $5, 'pending')`,
+      [
+        input.tenantId,
+        input.cycleEndDate,
+        fromCents(totalCents),
+        destinationId,
+        plan.incomplete,
+      ],
+    );
+  } else {
+    // Pending row from a crashed prior attempt — refresh plan amounts and finish moves.
+    await client.query(
+      `UPDATE cycle_sweeps
+       SET amount = $1, incomplete = $2, destination_envelope_id = $3
+       WHERE tenant_id = $4 AND cycle_end_date = $5::date AND status = 'pending'`,
+      [
+        fromCents(totalCents),
+        plan.incomplete,
+        destinationId,
+        input.tenantId,
+        input.cycleEndDate,
+      ],
+    );
   }
 
   for (const move of plan.moves) {
@@ -98,6 +132,13 @@ export async function applyCycleEndSweep(
     );
   }
 
+  await client.query(
+    `UPDATE cycle_sweeps
+     SET status = 'applied', incomplete = $1, amount = $2
+     WHERE tenant_id = $3 AND cycle_end_date = $4::date`,
+    [plan.incomplete, fromCents(totalCents), input.tenantId, input.cycleEndDate],
+  );
+
   logger.info("Cycle sweep applied", {
     tenantId: input.tenantId,
     cycleEndDate: input.cycleEndDate,
@@ -113,7 +154,24 @@ export async function applyCycleEndSweep(
   };
 }
 
-/** Advance next_due_date for schedules whose due date is today or earlier. */
+/**
+ * Midnight: advance outflow schedules due today.
+ * Inflows advance only when a matching deposit already settled today (D8).
+ */
+export async function advanceMidnightDueDates(
+  client: PoolClient,
+  tenantId: string,
+  today: string,
+  settledInflowToday: boolean,
+): Promise<{ outflows: number; inflows: number }> {
+  const outflows = await advanceMatchingSchedules(client, tenantId, today, "outflow");
+  const inflows = settledInflowToday
+    ? await advanceMatchingSchedules(client, tenantId, today, "inflow")
+    : 0;
+  return { outflows, inflows };
+}
+
+/** @deprecated Prefer advanceMidnightDueDates or advanceInflowsDueToday. */
 export async function advanceDueDates(
   client: PoolClient,
   tenantId: string,
@@ -197,4 +255,9 @@ function nextOccurrenceAfter(
 
   const fallback = DateTime.fromISO(currentDue, { zone: "utc" }).plus({ months: 1 }).toISODate();
   return fallback && fallback > today ? fallback : null;
+}
+
+/** Exported for tests that inspect pending sweep rows. */
+export function parseSweepAmountCents(amount: string): number {
+  return toCents(amount);
 }

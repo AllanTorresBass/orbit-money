@@ -17,12 +17,14 @@ function SignInForm() {
   async function onContinue(): Promise<void> {
     setSaving(true);
     try {
+      const normalized = email.trim().toLowerCase();
       const result = await signIn("credentials", {
-        email,
+        email: normalized,
         redirect: false,
       });
       if (result?.error) {
-        toast.error("No account for that email");
+        // Spec: unknown email goes to Create, not a dead end.
+        router.push(`/create?email=${encodeURIComponent(normalized)}`);
         return;
       }
 
@@ -33,7 +35,7 @@ function SignInForm() {
           "blair@harbor.test": HARBOR.blairId,
           "casey@harbor.test": HARBOR.caseyId,
         };
-        const userId = map[email.trim().toLowerCase()];
+        const userId = map[normalized];
         if (userId) {
           setActorUserId(userId);
           setTenantId(HARBOR.tenantId);
@@ -44,6 +46,25 @@ function SignInForm() {
       const callbackUrl = searchParams.get("callbackUrl") ?? "/today";
       router.push(callbackUrl.startsWith("/") ? callbackUrl : "/today");
       router.refresh();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function onMagicLink(): Promise<void> {
+    setSaving(true);
+    try {
+      const normalized = email.trim().toLowerCase();
+      const result = await signIn("resend", {
+        email: normalized,
+        redirect: false,
+        callbackUrl: searchParams.get("callbackUrl") ?? "/today",
+      });
+      if (result?.error) {
+        router.push(`/create?email=${encodeURIComponent(normalized)}`);
+        return;
+      }
+      toast.success("Check your email for a sign-in link");
     } finally {
       setSaving(false);
     }
@@ -74,8 +95,18 @@ function SignInForm() {
       >
         Continue
       </button>
+      <button
+        type="button"
+        disabled={saving}
+        onClick={() => {
+          void onMagicLink();
+        }}
+        className="mt-3 w-full border border-[var(--orbit-line)] py-3 text-[17px] text-[var(--orbit-ink)] disabled:opacity-60"
+      >
+        Email me a link
+      </button>
       <p className="mt-6 text-[13px] text-[var(--orbit-secondary)]">
-        Try alex@harbor.test, blair@harbor.test, or casey@harbor.test.
+        Try alex@harbor.test, blair@harbor.test, or casey@harbor.test. New email opens Create.
       </p>
     </div>
   );

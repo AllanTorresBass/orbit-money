@@ -10,6 +10,7 @@ import {
 } from "@/hooks/use-people";
 import { useGlobalErrorHandler } from "@/hooks/use-global-error-handler";
 import { cn } from "@/lib/utils";
+import { ROLE_LABELS } from "@/lib/utils/display-labels";
 import { fetchErrorMessage } from "@/lib/utils/handle-fetch-error";
 import type { MeDto } from "@/types/me/me.types";
 import type { AssignableRole, PersonDto, PersonRole } from "@/types/people/people.types";
@@ -18,14 +19,6 @@ export interface PeopleSectionProps {
   me: MeDto;
   className?: string;
 }
-
-const ROLE_LABELS: Record<PersonRole, string> = {
-  owner: "Owner",
-  admin: "Admin",
-  member: "Member",
-  advisor: "Advisor",
-  read_only: "Read-only",
-};
 
 const ALL_ASSIGNABLE: AssignableRole[] = ["advisor", "member", "admin", "read_only"];
 

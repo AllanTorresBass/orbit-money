@@ -36,6 +36,11 @@ export class TransactionService extends BaseService {
         [input.tenantId, key],
       );
       if (existing.rows[0]) {
+        this.logInfo("Purchase idempotency hit", {
+          tenantId: input.tenantId,
+          transactionId: existing.rows[0].id,
+          idempotencyHit: true,
+        });
         const allowance = await client.query<{ s_today: string }>(
           `SELECT s_today::text FROM allowance_snapshots WHERE tenant_id = $1`,
           [input.tenantId],

@@ -11,7 +11,7 @@ import { rrulesForCadence } from "@/lib/utils/cadence";
 import { parseDollarsToCents } from "@/lib/utils/money-input";
 import {
   CADENCES,
-  PAYDAY_DAY_OPTIONS,
+  PAYDAY_DAY_CHOICES,
   createSpaceDefaults,
   createSpaceFormSchema,
   type CreateSpaceForm,
@@ -19,7 +19,7 @@ import {
 
 const STEP_FIELDS: Record<1 | 2 | 3, FieldPath<CreateSpaceForm>[]> = {
   1: ["name", "tenantType"],
-  2: ["cadence", "nextPayday", "firstDay", "secondDay"],
+  2: ["cadence", "nextPayday", "firstDay", "secondDay", "monthDay"],
   3: ["amount"],
 };
 
@@ -57,6 +57,7 @@ export default function CreatePage() {
     const rrules = rrulesForCadence(values.cadence, {
       firstDay: values.firstDay,
       secondDay: values.secondDay,
+      monthDay: values.monthDay,
     });
 
     createTenant.mutate(
@@ -180,9 +181,9 @@ export default function CreatePage() {
                   {...register("firstDay", { valueAsNumber: true })}
                   className="ml-2 border-b border-[var(--orbit-line)] bg-transparent py-1 text-[17px] text-[var(--orbit-ink)] outline-none"
                 >
-                  {PAYDAY_DAY_OPTIONS.map((day) => (
-                    <option key={day} value={day}>
-                      {day}
+                  {PAYDAY_DAY_CHOICES.map((choice) => (
+                    <option key={choice.value} value={choice.value}>
+                      {choice.label}
                     </option>
                   ))}
                 </select>
@@ -193,9 +194,9 @@ export default function CreatePage() {
                   {...register("secondDay", { valueAsNumber: true })}
                   className="ml-2 border-b border-[var(--orbit-line)] bg-transparent py-1 text-[17px] text-[var(--orbit-ink)] outline-none"
                 >
-                  {PAYDAY_DAY_OPTIONS.map((day) => (
-                    <option key={day} value={day}>
-                      {day}
+                  {PAYDAY_DAY_CHOICES.map((choice) => (
+                    <option key={choice.value} value={choice.value}>
+                      {choice.label}
                     </option>
                   ))}
                 </select>
@@ -206,6 +207,22 @@ export default function CreatePage() {
                 </p>
               ) : null}
             </div>
+          ) : null}
+
+          {cadence === "Every month" ? (
+            <label className="mt-6 block text-[15px] text-[var(--orbit-secondary)]">
+              Day of the month
+              <select
+                {...register("monthDay", { valueAsNumber: true })}
+                className="ml-2 border-b border-[var(--orbit-line)] bg-transparent py-1 text-[17px] text-[var(--orbit-ink)] outline-none"
+              >
+                {PAYDAY_DAY_CHOICES.map((choice) => (
+                  <option key={choice.value} value={choice.value}>
+                    {choice.label}
+                  </option>
+                ))}
+              </select>
+            </label>
           ) : null}
 
           <label className="mt-8 block text-[15px] text-[var(--orbit-secondary)]">

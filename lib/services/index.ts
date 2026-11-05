@@ -5,3 +5,4 @@ export { planService } from "@/lib/services/plan/PlanService";
 export { tenantService } from "@/lib/services/tenant/TenantService";
 export { peopleService } from "@/lib/services/people/PeopleService";
 export { accountService } from "@/lib/services/accounts/AccountService";
+export { pipelineService } from "@/lib/services/pipeline/PipelineService";

@@ -2,19 +2,13 @@
 
 import { useForecastDay } from "@/hooks/use-allowance";
 import { cn, formatMoney, formatShortDate } from "@/lib/utils";
-import type { ForecastStatus } from "@/types/forecast/forecast.types";
+import { dayNarrative } from "@/lib/utils/day-narrative";
 
 export interface DayDetailSheetProps {
   /** `YYYY-MM-DD` of the tapped row. Null keeps the sheet closed. */
   date: string | null;
   onClose: () => void;
   className?: string;
-}
-
-function statusLine(status: ForecastStatus): string | null {
-  if (status === "breach") return "Not enough ahead";
-  if (status === "warning") return "Getting low";
-  return null;
 }
 
 interface DetailRowProps {
@@ -37,7 +31,6 @@ export function DayDetailSheet({ date, onClose, className }: DayDetailSheetProps
   if (date === null) return null;
 
   const detail = day.data;
-  const line = detail ? statusLine(detail.status) : null;
 
   return (
     <div
@@ -68,18 +61,15 @@ export function DayDetailSheet({ date, onClose, className }: DayDetailSheetProps
           <p className="mt-6 text-[15px] text-[var(--orbit-short)]">Could not load this day.</p>
         ) : (
           <>
-            {line ? (
-              <p
-                className={cn(
-                  "mt-2 text-[15px]",
-                  detail.status === "breach"
-                    ? "text-[var(--orbit-short)]"
-                    : "text-[var(--orbit-low)]",
-                )}
-              >
-                {line}
-              </p>
-            ) : null}
+            <p
+              className={cn(
+                "mt-2 text-[17px] text-[var(--orbit-ink)]",
+                detail.status === "breach" && "text-[var(--orbit-short)]",
+                detail.status === "warning" && "text-[var(--orbit-low)]",
+              )}
+            >
+              {dayNarrative(detail)}
+            </p>
             <div className="mt-4">
               <DetailRow label="Money in the bank" value={formatMoney(detail.balanceCents)} />
               <DetailRow label="Keep at least" value={formatMoney(detail.keepAtLeastCents)} />
@@ -93,13 +83,6 @@ export function DayDetailSheet({ date, onClose, className }: DayDetailSheetProps
                 <DetailRow label="Spending" value={`-${formatMoney(detail.assumedBurnCents)}`} />
               ) : null}
             </div>
-            {detail.inflowCents === 0 &&
-            detail.scheduledOutflowCents === 0 &&
-            detail.assumedBurnCents === 0 ? (
-              <p className="mt-4 text-[15px] text-[var(--orbit-secondary)]">
-                Nothing moves on this day.
-              </p>
-            ) : null}
           </>
         )}
       </div>

@@ -13,6 +13,7 @@ export type PipelineStep = z.infer<typeof pipelineStepSchema>;
 
 export const pipelineStepEventSchema = z.object({
   kind: z.literal("pipeline_step"),
+  runId: z.string().uuid(),
   trigger: z.enum(["sync", "midnight"]),
   tenantId: z.string().uuid(),
   asOfDate: z.string(),
@@ -30,11 +31,13 @@ export const pipelineStepEventSchema = z.object({
   sweepIncomplete: z.boolean().optional(),
   forecastStale: z.boolean().optional(),
   durationMs: z.number().nonnegative().optional(),
+  cronBatchId: z.string().uuid().optional(),
 });
 
 export type PipelineStepEvent = z.infer<typeof pipelineStepEventSchema>;
 
 export interface PipelineRunSummary {
+  runId: string;
   sTodayCents: number | null;
   sDailyCents: number | null;
   oUnfundedCents: number;
@@ -42,4 +45,22 @@ export interface PipelineRunSummary {
   mitigated: boolean;
   forecastStale: boolean;
   cutsApplied: number;
+  sweepIncomplete: boolean;
+}
+
+export interface PipelineRunListItem {
+  id: string;
+  trigger: "sync" | "midnight";
+  asOfDate: string;
+  startedAt: string;
+  finishedAt: string | null;
+  status: string;
+  forecastStale: boolean;
+  cutsApplied: number;
+  oUnfundedCents: number | null;
+  sDailyCents: number | null;
+  sTodayCents: number | null;
+  nP: number | null;
+  sweepIncomplete: boolean;
+  cronBatchId: string | null;
 }

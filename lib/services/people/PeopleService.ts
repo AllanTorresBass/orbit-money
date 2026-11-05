@@ -7,6 +7,7 @@ import type {
   AssignableRole,
   InviteResult,
   MembershipStatus,
+  PendingInviteDto,
   PersonDto,
 } from "@/types/people/people.types";
 
@@ -96,6 +97,42 @@ export class PeopleService extends BaseService {
 
       this.logInfo("Person invited", { tenantId: input.tenantId, userId: inviteeId });
       return { userId: inviteeId, status: upserted.rows[0].status };
+    });
+  }
+
+  /**
+   * Households that invited this person and have not been joined yet.
+   * Works before any membership is active, so it skips the tenant checks.
+   * The sender is not stored; the household owner is named as the inviter.
+   */
+  async listPendingInvites(userId: string): Promise<PendingInviteDto[]> {
+    return withTransaction(null, async (client) => {
+      await client.query("SELECT set_config('app.bypass_rls', 'on', true)");
+      const result = await client.query<{
+        tenant_id: string;
+        tenant_name: string;
+        role: PendingInviteDto["role"];
+        inviter_name: string | null;
+      }>(
+        `SELECT m.tenant_id, t.name AS tenant_name, m.role,
+                (SELECT u.name
+                   FROM tenant_memberships o
+                   JOIN users u ON u.id = o.user_id
+                  WHERE o.tenant_id = m.tenant_id AND o.role = 'owner' AND o.status = 'active'
+                  ORDER BY o.created_at ASC
+                  LIMIT 1) AS inviter_name
+         FROM tenant_memberships m
+         JOIN tenants t ON t.id = m.tenant_id
+         WHERE m.user_id = $1 AND m.status = 'invited'
+         ORDER BY m.created_at ASC`,
+        [userId],
+      );
+      return result.rows.map((r) => ({
+        tenantId: r.tenant_id,
+        tenantName: r.tenant_name,
+        inviterName: r.inviter_name && r.inviter_name.trim() !== "" ? r.inviter_name : null,
+        role: r.role,
+      }));
     });
   }
 

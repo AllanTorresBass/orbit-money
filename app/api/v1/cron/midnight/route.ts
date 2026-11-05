@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { localHourInTimezone, todayInTimezone } from "@/lib/calendar/dates";
 import { withTransaction } from "@/lib/db/connection";
@@ -18,6 +19,7 @@ async function runMidnight(request: NextRequest): Promise<NextResponse> {
 
     const forceAll = request.nextUrl.searchParams.get("all") === "1";
     const now = new Date();
+    const cronBatchId = randomUUID();
 
     const tenants = await withTransaction(null, async (client) => {
       await client.query("SELECT set_config('app.bypass_rls', 'on', true)");
@@ -27,40 +29,56 @@ async function runMidnight(request: NextRequest): Promise<NextResponse> {
       return result.rows;
     });
 
-    const due = tenants.filter(
-      (tenant) => forceAll || localHourInTimezone(tenant.timezone, now) === 0,
-    );
+    // Group by timezone so we only evaluate tenants whose local hour is midnight.
+    const byTimezone = new Map<string, string[]>();
+    for (const tenant of tenants) {
+      const list = byTimezone.get(tenant.timezone) ?? [];
+      list.push(tenant.id);
+      byTimezone.set(tenant.timezone, list);
+    }
+
+    const dueTenantIds = new Set<string>();
+    for (const [timezone, ids] of byTimezone) {
+      if (forceAll || localHourInTimezone(timezone, now) === 0) {
+        for (const id of ids) dueTenantIds.add(id);
+      }
+    }
 
     logger.info("Midnight cron start", {
+      cronBatchId,
       tenantCount: tenants.length,
-      dueCount: due.length,
+      dueCount: dueTenantIds.size,
+      timezoneCount: byTimezone.size,
       forceAll,
     });
 
-    const results: Array<{ tenantId: string; ok: boolean; skipped?: boolean }> = [];
+    const results: Array<{ tenantId: string; ok: boolean; skipped?: boolean; runId?: string }> =
+      [];
 
     for (const tenant of tenants) {
-      if (!forceAll && localHourInTimezone(tenant.timezone, now) !== 0) {
+      if (!dueTenantIds.has(tenant.id)) {
         results.push({ tenantId: tenant.id, ok: true, skipped: true });
         continue;
       }
 
       try {
-        await withTransaction(
+        const summary = await withTransaction(
           { tenantId: tenant.id, userId: SYSTEM_USER_ID },
           async (client) => {
             await client.query("SELECT set_config('app.bypass_rls', 'on', true)");
-            await runEvaluationPipeline(client, {
+            return runEvaluationPipeline(client, {
               tenantId: tenant.id,
               userId: SYSTEM_USER_ID,
               trigger: "midnight",
               asOfDate: todayInTimezone(tenant.timezone, now),
+              cronBatchId,
             });
           },
         );
-        results.push({ tenantId: tenant.id, ok: true });
+        results.push({ tenantId: tenant.id, ok: true, runId: summary.runId });
       } catch (error: unknown) {
         logger.error("Midnight failed for tenant", {
+          cronBatchId,
           tenantId: tenant.id,
           error: error instanceof Error ? error.message : "unknown",
         });
@@ -70,7 +88,8 @@ async function runMidnight(request: NextRequest): Promise<NextResponse> {
 
     return NextResponse.json({
       ok: true,
-      ran: due.length,
+      cronBatchId,
+      ran: dueTenantIds.size,
       results,
     });
   } catch (error: unknown) {

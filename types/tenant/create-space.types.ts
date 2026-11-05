@@ -11,8 +11,27 @@ export const CADENCES = [
 ] as const;
 export type Cadence = (typeof CADENCES)[number];
 
+/** Stored in the form as -1. RRULE reads `BYMONTHDAY=-1` as the last day of each month. */
+export const LAST_DAY_OF_MONTH = -1;
+
 /** Days offered for monthly paydays. 1 to 28 so every month has them. */
 export const PAYDAY_DAY_OPTIONS = Array.from({ length: 28 }, (_, index) => index + 1);
+
+export interface PaydayDayChoice {
+  value: number;
+  label: string;
+}
+
+/** 1 to 28, then "Last day" for months of any length. */
+export const PAYDAY_DAY_CHOICES: PaydayDayChoice[] = [
+  ...PAYDAY_DAY_OPTIONS.map((day) => ({ value: day, label: String(day) })),
+  { value: LAST_DAY_OF_MONTH, label: "Last day" },
+];
+
+export const paydayDaySchema = z
+  .number()
+  .int()
+  .refine((day) => day === LAST_DAY_OF_MONTH || (day >= 1 && day <= 28), "Pick a day");
 
 export const createSpaceFormSchema = z
   .object({
@@ -24,8 +43,9 @@ export const createSpaceFormSchema = z
       const cents = parseDollarsToCents(value);
       return cents !== null && cents > 0;
     }, "Enter a payday amount"),
-    firstDay: z.number().int().min(1).max(28),
-    secondDay: z.number().int().min(1).max(28),
+    firstDay: paydayDaySchema,
+    secondDay: paydayDaySchema,
+    monthDay: paydayDaySchema,
   })
   .refine((form) => form.cadence !== "Twice a month" || form.firstDay !== form.secondDay, {
     message: "Pick two different days",
@@ -42,4 +62,5 @@ export const createSpaceDefaults: CreateSpaceForm = {
   amount: "3000",
   firstDay: 1,
   secondDay: 15,
+  monthDay: 1,
 };

@@ -1,19 +1,26 @@
 import { daysBetween } from "@/lib/calendar/dates";
+import {
+  buildDueAmountByEnvelopeId,
+  type ScheduleDueRow,
+} from "@/lib/engines/due-amounts";
 import { allocateInflow } from "@/lib/engines/waterfall";
+import { computeUnfundedCents } from "@/lib/engines/unfunded";
 import { splitDailyRate } from "@/lib/money/cents";
 import type { EnvelopeState } from "@/types/envelope/envelope.types";
 
 /**
  * Build per-day discretionary burn across the horizon.
- * On each future payday, run an in-memory waterfall and floor-divide the new
- * discretionary pool by days until the following payday (D9 / module 3).
+ * On each future payday, run an in-memory waterfall, clamp by that cycle's
+ * O_unfunded, and floor-divide the spendable pool by days until the next payday.
  */
 export function buildProjectedBurnByDate(input: {
   today: string;
   dates: string[];
   initialBurnCents: number;
   envelopes: EnvelopeState[];
+  /** Fallback dues when schedules are omitted (legacy tests). */
   dueAmountByEnvelopeId: Record<string, number>;
+  schedules?: ScheduleDueRow[];
   eventsByDate: Record<string, { inflowCents: number; outflowCents: number }>;
   paydayDates: string[];
 }): Record<string, number> {
@@ -53,20 +60,43 @@ export function buildProjectedBurnByDate(input: {
         ...e,
         currentBalanceCents: balances.get(e.id) ?? e.currentBalanceCents,
       }));
+
+      const idx = input.paydayDates.indexOf(date);
+      const nextPayday = input.paydayDates[idx + 1] ?? null;
+      const dueAmountByEnvelopeId = input.schedules
+        ? buildDueAmountByEnvelopeId({
+            envelopes: projectedEnvelopes,
+            schedules: input.schedules,
+            today: date,
+            nextInflow: nextPayday,
+          })
+        : input.dueAmountByEnvelopeId;
+
       const result = allocateInflow({
         inflowCents: events.inflowCents,
         envelopes: projectedEnvelopes,
-        dueAmountByEnvelopeId: input.dueAmountByEnvelopeId,
+        dueAmountByEnvelopeId,
       });
       for (const [id, bal] of Object.entries(result.balancesAfter)) {
         balances.set(id, bal);
       }
 
-      const idx = input.paydayDates.indexOf(date);
-      const nextPayday = input.paydayDates[idx + 1];
       const nP = nextPayday ? Math.max(1, daysBetween(date, nextPayday)) : 14;
+      const afterEnvelopes = input.envelopes.map((e) => ({
+        ...e,
+        currentBalanceCents: balances.get(e.id) ?? e.currentBalanceCents,
+      }));
+      const oUnfunded = input.schedules
+        ? computeUnfundedCents({
+            envelopes: afterEnvelopes,
+            schedules: input.schedules,
+            today: date,
+            nextInflow: nextPayday,
+          })
+        : 0;
       const discBal = balances.get(disc.id) ?? 0;
-      currentBurn = splitDailyRate(Math.max(0, discBal), nP).daily;
+      const spendable = Math.max(0, discBal - oUnfunded);
+      currentBurn = splitDailyRate(spendable, nP).daily;
     }
 
     burnByDate[date] = currentBurn;

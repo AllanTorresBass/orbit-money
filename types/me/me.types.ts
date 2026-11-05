@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { PersonRole } from "@/types/people/people.types";
 import { entityIdSchema } from "@/types/shared/ids";
+import type { TenantType } from "@/types/tenant/tenant.types";
 
 export interface MeDto {
   userId: string;
@@ -9,6 +10,7 @@ export interface MeDto {
   email: string;
   name: string;
   tenantName: string;
+  tenantType: TenantType;
   canSpend: boolean;
 }
 
