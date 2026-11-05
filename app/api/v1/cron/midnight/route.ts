@@ -5,8 +5,22 @@ import { withTransaction } from "@/lib/db/connection";
 import { getEnv } from "@/lib/env";
 import { logger } from "@/lib/logger";
 import { runEvaluationPipeline } from "@/lib/pipeline/run-evaluation";
+import { closeAbandonedPipelineRuns, prunePipelineRuns } from "@/lib/pipeline/telemetry";
+import { mapWithConcurrency } from "@/lib/utils/promise-pool";
 
 const SYSTEM_USER_ID = "00000000-0000-0000-0000-000000000000";
+/** Tenants evaluated at once. Each holds one pooled connection for its transaction. */
+const TENANT_CONCURRENCY = 4;
+const RUN_RETENTION_DAYS = 90;
+/** A run still `running` after this long crashed without cleanup. */
+const ABANDONED_RUN_MINUTES = 60;
+
+interface TenantResult {
+  tenantId: string;
+  ok: boolean;
+  skipped?: boolean;
+  runId?: string;
+}
 
 async function runMidnight(request: NextRequest): Promise<NextResponse> {
   try {
@@ -52,44 +66,66 @@ async function runMidnight(request: NextRequest): Promise<NextResponse> {
       forceAll,
     });
 
-    const results: Array<{ tenantId: string; ok: boolean; skipped?: boolean; runId?: string }> =
-      [];
+    const results = await mapWithConcurrency<{ id: string; timezone: string }, TenantResult>(
+      tenants,
+      TENANT_CONCURRENCY,
+      async (tenant) => {
+        if (!dueTenantIds.has(tenant.id)) {
+          return { tenantId: tenant.id, ok: true, skipped: true };
+        }
+        try {
+          const summary = await withTransaction(
+            { tenantId: tenant.id, userId: SYSTEM_USER_ID },
+            async (client) => {
+              await client.query("SELECT set_config('app.bypass_rls', 'on', true)");
+              return runEvaluationPipeline(client, {
+                tenantId: tenant.id,
+                userId: SYSTEM_USER_ID,
+                trigger: "midnight",
+                asOfDate: todayInTimezone(tenant.timezone, now),
+                cronBatchId,
+              });
+            },
+          );
+          return { tenantId: tenant.id, ok: true, runId: summary.runId };
+        } catch (error: unknown) {
+          logger.error("Midnight failed for tenant", {
+            cronBatchId,
+            tenantId: tenant.id,
+            error: error instanceof Error ? error.message : "unknown",
+          });
+          return { tenantId: tenant.id, ok: false };
+        }
+      },
+    );
 
-    for (const tenant of tenants) {
-      if (!dueTenantIds.has(tenant.id)) {
-        results.push({ tenantId: tenant.id, ok: true, skipped: true });
-        continue;
-      }
-
-      try {
-        const summary = await withTransaction(
-          { tenantId: tenant.id, userId: SYSTEM_USER_ID },
-          async (client) => {
-            await client.query("SELECT set_config('app.bypass_rls', 'on', true)");
-            return runEvaluationPipeline(client, {
-              tenantId: tenant.id,
-              userId: SYSTEM_USER_ID,
-              trigger: "midnight",
-              asOfDate: todayInTimezone(tenant.timezone, now),
-              cronBatchId,
-            });
-          },
-        );
-        results.push({ tenantId: tenant.id, ok: true, runId: summary.runId });
-      } catch (error: unknown) {
-        logger.error("Midnight failed for tenant", {
-          cronBatchId,
-          tenantId: tenant.id,
-          error: error instanceof Error ? error.message : "unknown",
-        });
-        results.push({ tenantId: tenant.id, ok: false });
-      }
+    // Tail: retention and crash cleanup. A failure here never fails the tick.
+    let pruned = 0;
+    let closed = 0;
+    try {
+      const housekeeping = await withTransaction(null, async (client) => {
+        await client.query("SELECT set_config('app.bypass_rls', 'on', true)");
+        return {
+          pruned: await prunePipelineRuns(client, RUN_RETENTION_DAYS),
+          closed: await closeAbandonedPipelineRuns(client, ABANDONED_RUN_MINUTES),
+        };
+      });
+      pruned = housekeeping.pruned;
+      closed = housekeeping.closed;
+    } catch (error: unknown) {
+      logger.error("Pipeline retention failed", {
+        cronBatchId,
+        error: error instanceof Error ? error.message : "unknown",
+      });
     }
+    logger.info("Midnight cron done", { cronBatchId, ran: dueTenantIds.size, pruned, closed });
 
     return NextResponse.json({
       ok: true,
       cronBatchId,
       ran: dueTenantIds.size,
+      pruned,
+      closedAbandoned: closed,
       results,
     });
   } catch (error: unknown) {

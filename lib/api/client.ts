@@ -8,6 +8,7 @@ import type {
   ForecastListResponse,
 } from "@/types/forecast/forecast.types";
 import type { MeDto, TenantChoice } from "@/types/me/me.types";
+import type { PipelineRunListResponse, PipelineRunResponse } from "@/types/pipeline/pipeline.types";
 import type {
   AcceptInviteBody,
   AssignableRole,
@@ -92,6 +93,15 @@ export const api = {
   getForecastDay: (date: string) =>
     apiFetch<ForecastDayDetailDto>(`/api/v1/forecast/${encodeURIComponent(date)}`),
   getPlan: () => apiFetch<PlanDto>("/api/v1/plan"),
+  getPipelineRuns: (options?: { limit?: number; includeSteps?: boolean }) => {
+    const params = new URLSearchParams();
+    if (options?.limit) params.set("limit", String(options.limit));
+    if (options?.includeSteps) params.set("includeSteps", "1");
+    const qs = params.toString();
+    return apiFetch<PipelineRunListResponse>(`/api/v1/pipeline/runs${qs ? `?${qs}` : ""}`);
+  },
+  getPipelineRun: (id: string) =>
+    apiFetch<PipelineRunResponse>(`/api/v1/pipeline/runs/${encodeURIComponent(id)}`),
   createPurchase: (body: { amountCents: number; idempotencyKey?: string; memo?: string }) =>
     apiFetch<{ id: string; sTodayCents: number | null }>("/api/v1/transactions", {
       method: "POST",

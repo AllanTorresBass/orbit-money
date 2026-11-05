@@ -81,22 +81,25 @@ export function buildProjectedBurnByDate(input: {
         balances.set(id, bal);
       }
 
-      const nP = nextPayday ? Math.max(1, daysBetween(date, nextPayday)) : 14;
-      const afterEnvelopes = input.envelopes.map((e) => ({
-        ...e,
-        currentBalanceCents: balances.get(e.id) ?? e.currentBalanceCents,
-      }));
-      const oUnfunded = input.schedules
-        ? computeUnfundedCents({
-            envelopes: afterEnvelopes,
-            schedules: input.schedules,
-            today: date,
-            nextInflow: nextPayday,
-          })
-        : 0;
-      const discBal = balances.get(disc.id) ?? 0;
-      const spendable = Math.max(0, discBal - oUnfunded);
-      currentBurn = splitDailyRate(spendable, nP).daily;
+      // No next payday in the horizon → stop rebasing (keep prior burn). Do not invent nP.
+      if (nextPayday) {
+        const nP = Math.max(1, daysBetween(date, nextPayday));
+        const afterEnvelopes = input.envelopes.map((e) => ({
+          ...e,
+          currentBalanceCents: balances.get(e.id) ?? e.currentBalanceCents,
+        }));
+        const oUnfunded = input.schedules
+          ? computeUnfundedCents({
+              envelopes: afterEnvelopes,
+              schedules: input.schedules,
+              today: date,
+              nextInflow: nextPayday,
+            })
+          : 0;
+        const discBal = balances.get(disc.id) ?? 0;
+        const spendable = Math.max(0, discBal - oUnfunded);
+        currentBurn = splitDailyRate(spendable, nP).daily;
+      }
     }
 
     burnByDate[date] = currentBurn;

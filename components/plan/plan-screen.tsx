@@ -5,9 +5,10 @@ import { AddEnvelopeSheet } from "@/components/plan/add-envelope-sheet";
 import { EditEnvelopeSheet } from "@/components/plan/edit-envelope-sheet";
 import { PlanSkeleton } from "@/components/plan/plan-skeleton";
 import { SpendingExplainSheet } from "@/components/plan/spending-explain-sheet";
+import { InlineBanner } from "@/components/shell/inline-banner";
 import { TenantPicker } from "@/components/shell/tenant-picker";
 import { useMe, usePlan } from "@/hooks/use-allowance";
-import { useReorderEnvelopes } from "@/hooks/use-plan-mutations";
+import { useProposals, useReorderEnvelopes } from "@/hooks/use-plan-mutations";
 import { isApiError } from "@/lib/api/api-error";
 import { cn, formatMoney, formatShortDate } from "@/lib/utils";
 import { fetchErrorMessage } from "@/lib/utils/handle-fetch-error";
@@ -28,6 +29,9 @@ export function PlanScreen({ className }: PlanScreenProps) {
 
   const canConfigure = me.data?.role === "owner" || me.data?.role === "admin";
   const canSuggest = me.data?.role === "member";
+  // Only owners and admins can read suggestions. A member suggests and never applies.
+  const proposals = useProposals(canConfigure);
+  const pendingSuggestions = canConfigure ? (proposals.data?.proposals.length ?? 0) : 0;
   const canOpenRow = canConfigure || canSuggest;
   const showAdd = canConfigure || canSuggest;
 
@@ -69,11 +73,22 @@ export function PlanScreen({ className }: PlanScreenProps) {
       <h1 className="font-[family-name:var(--font-orbit-serif)] text-[28px] text-[var(--orbit-ink)]">
         Plan
       </h1>
-      <p className="mt-1 text-[15px] text-[var(--orbit-secondary)]">
-        {payday
-          ? `Payday ${formatShortDate(payday.date)} · ${formatMoney(payday.amountCents)}`
-          : "Where payday goes."}
-      </p>
+      {payday ? (
+        <div className="mt-1 text-[15px] text-[var(--orbit-secondary)]">
+          <p>Payday on {formatShortDate(payday.date)}</p>
+          <p>{formatMoney(payday.amountCents)} arrives</p>
+        </div>
+      ) : (
+        <p className="mt-1 text-[15px] text-[var(--orbit-secondary)]">Where payday goes.</p>
+      )}
+
+      {pendingSuggestions > 0 ? (
+        <InlineBanner href="/you" className="mt-6">
+          {pendingSuggestions === 1
+            ? "1 suggestion is waiting for you."
+            : `${pendingSuggestions} suggestions are waiting for you.`}
+        </InlineBanner>
+      ) : null}
 
       {sweepIncomplete ? (
         <p

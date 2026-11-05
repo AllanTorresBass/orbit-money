@@ -4,6 +4,7 @@ import Link from "next/link";
 import { signOut } from "next-auth/react";
 import { ActorSwitcher } from "@/components/shell/actor-switcher";
 import { TenantPicker } from "@/components/shell/tenant-picker";
+import { ActivitySection } from "@/components/you/activity-section";
 import { BankSection } from "@/components/you/bank-section";
 import { KeepAtLeastSection } from "@/components/you/keep-at-least-section";
 import { PeopleSection } from "@/components/you/people-section";
@@ -68,6 +69,8 @@ export function YouScreen({ className }: YouScreenProps) {
       {me.data ? <PeopleSection me={me.data} /> : null}
 
       {canManage ? <KeepAtLeastSection /> : null}
+
+      <ActivitySection canManage={canManage} />
 
       {me.data?.role === "owner" ? (
         <section className="mt-10" aria-labelledby="you-billing">

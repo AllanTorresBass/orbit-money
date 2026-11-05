@@ -79,4 +79,23 @@ describe("buildProjectedBurnByDate", () => {
     // Residual disc 59500 − O_unfunded 14000 = 45500; floor(45500/14)=3250
     expect(burnByDate["2026-03-15"]).toBe(3_250);
   });
+
+  it("keeps prior burn when a simulated payday has no following payday in the horizon", () => {
+    const burnByDate = buildProjectedBurnByDate({
+      today: "2026-03-01",
+      dates: ["2026-03-01", "2026-03-02", "2026-03-15", "2026-03-16"],
+      initialBurnCents: 500,
+      envelopes,
+      dueAmountByEnvelopeId: { rent: 150_000 },
+      eventsByDate: {
+        "2026-03-15": { inflowCents: 200_000, outflowCents: 0 },
+      },
+      // Last payday in the list — no nP to invent.
+      paydayDates: ["2026-03-15"],
+    });
+
+    expect(burnByDate["2026-03-02"]).toBe(500);
+    expect(burnByDate["2026-03-15"]).toBe(500);
+    expect(burnByDate["2026-03-16"]).toBe(500);
+  });
 });

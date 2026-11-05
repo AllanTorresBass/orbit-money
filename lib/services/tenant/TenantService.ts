@@ -12,16 +12,14 @@ export class TenantService extends BaseService {
   }
 
   async createHousehold(input: CreateTenantInput): Promise<CreateTenantResult> {
-    // One schedule per rrule. A single rule keeps the payday the person picked;
-    // several rules (twice a month) start at each rule's first date on or after it.
+    // Opening deposit always books on the typed nextPayday. Schedule dues use
+    // firstOccurrenceOnOrAfter so semi-monthly rules that miss that date still
+    // land on their next legal day for subsequent cycles.
+    const openingDepositDate = input.nextPayday;
     const schedules = input.rrules.map((rrule) => ({
       rrule,
-      nextDueDate:
-        input.rrules.length === 1
-          ? input.nextPayday
-          : firstOccurrenceOnOrAfter(rrule, input.nextPayday),
+      nextDueDate: firstOccurrenceOnOrAfter(rrule, input.nextPayday),
     }));
-    const firstPayday = schedules.map((s) => s.nextDueDate).sort()[0] ?? input.nextPayday;
 
     return withTransaction(null, async (client) => {
       await client.query("SELECT set_config('app.bypass_rls', 'on', true)");
@@ -103,7 +101,7 @@ export class TenantService extends BaseService {
           tenantId,
           accountId,
           fromCents(input.paydayAmountCents),
-          firstPayday,
+          openingDepositDate,
           `create-payday-${tenantId}`,
         ],
       );
@@ -123,7 +121,7 @@ export class TenantService extends BaseService {
         userId: resolvedUserId,
         trigger: "sync",
         transactionId: txn.rows[0].id,
-        asOfDate: firstPayday,
+        asOfDate: openingDepositDate,
       });
 
       this.logInfo("Household created", { tenantId });

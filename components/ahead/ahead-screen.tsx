@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { useRef, useState } from "react";
 import { AheadSkeleton } from "@/components/ahead/ahead-skeleton";
 import { DayDetailSheet } from "@/components/ahead/day-detail-sheet";
 import { TenantPicker } from "@/components/shell/tenant-picker";
@@ -70,11 +71,17 @@ function rowsForDays(days: ForecastDayDto[]): AheadRow[] {
   return rows;
 }
 
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
 export function AheadScreen({ className }: AheadScreenProps) {
   const forecast = useForecast();
   const allowance = useAllowance();
   const me = useMe();
-  const [openDate, setOpenDate] = useState<string | null>(null);
+  // `?date=YYYY-MM-DD` opens that day and marks its row, e.g. from the Today banner.
+  const requested = useSearchParams().get("date");
+  const linkedDate = requested !== null && ISO_DATE.test(requested) ? requested : null;
+  const [openDate, setOpenDate] = useState<string | null>(linkedDate);
+  const scrolled = useRef(false);
 
   if (forecast.isLoading) {
     return <AheadSkeleton className={className} />;
@@ -167,7 +174,21 @@ export function AheadScreen({ className }: AheadScreenProps) {
       ) : (
         <ul className="mt-8">
           {rows.map((row) => (
-            <li key={row.key} className="border-b border-[var(--orbit-line)]">
+            <li
+              key={row.key}
+              id={`ahead-${row.date}`}
+              aria-current={row.date === linkedDate ? "date" : undefined}
+              ref={(node) => {
+                if (node && row.date === linkedDate && !scrolled.current) {
+                  scrolled.current = true;
+                  node.scrollIntoView({ block: "center" });
+                }
+              }}
+              className={cn(
+                "border-b border-[var(--orbit-line)]",
+                row.date === linkedDate && "border-l-2 border-l-[var(--orbit-ink)] pl-3",
+              )}
+            >
               <button
                 type="button"
                 onClick={() => setOpenDate(row.date)}

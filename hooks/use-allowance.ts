@@ -6,6 +6,8 @@ import { api } from "@/lib/api/client";
 import { enqueuePurchase } from "@/lib/offline/purchase-queue";
 import { invalidateMoneyQueries } from "@/lib/query-invalidation";
 import { queryKeys } from "@/lib/query-keys";
+import { applyQueuedPurchase } from "@/lib/utils/queued-purchase";
+import type { AllowanceDto } from "@/types/allowance/allowance.types";
 
 export function useAllowance() {
   return useQuery({
@@ -57,9 +59,12 @@ export function useCreatePurchase() {
         throw error;
       }
     },
-    onSuccess: async (result) => {
+    onSuccess: async (result, variables) => {
       if (result.queued) {
-        notifySuccess("Saved offline — will sync when you are back online");
+        // Offline: move today's number now. The flush on reconnect refetches the real one.
+        queryClient.setQueryData<AllowanceDto>(queryKeys.allowance.current(), (previous) =>
+          previous ? applyQueuedPurchase(previous, variables.amountCents) : previous,
+        );
         return;
       }
       notifySuccess("Purchase saved");

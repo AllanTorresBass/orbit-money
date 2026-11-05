@@ -11,6 +11,7 @@ const envSchema = z
     NEXT_PUBLIC_ALLOW_DEV_HEADER_AUTH: z.enum(["true", "false"]).optional(),
     AUTH_RESEND_KEY: z.string().optional(),
     AUTH_EMAIL_FROM: z.string().email().optional(),
+    NEXT_PUBLIC_MAGIC_LINK: z.enum(["true", "false"]).optional(),
   })
   .superRefine((value, ctx) => {
     if (value.NODE_ENV === "production" && (!value.AUTH_SECRET || value.AUTH_SECRET.length < 16)) {
@@ -18,6 +19,16 @@ const envSchema = z
         code: "custom",
         path: ["AUTH_SECRET"],
         message: "AUTH_SECRET is required in production (min 16 chars)",
+      });
+    }
+    if (
+      value.NEXT_PUBLIC_MAGIC_LINK === "true" &&
+      (!value.AUTH_RESEND_KEY || !value.AUTH_EMAIL_FROM)
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["NEXT_PUBLIC_MAGIC_LINK"],
+        message: "NEXT_PUBLIC_MAGIC_LINK=true requires AUTH_RESEND_KEY and AUTH_EMAIL_FROM",
       });
     }
     if (value.NODE_ENV === "production" && value.ALLOW_DEV_HEADER_AUTH === "true") {
@@ -55,6 +66,7 @@ export function getEnv(): Env {
     NEXT_PUBLIC_ALLOW_DEV_HEADER_AUTH: process.env.NEXT_PUBLIC_ALLOW_DEV_HEADER_AUTH,
     AUTH_RESEND_KEY: process.env.AUTH_RESEND_KEY,
     AUTH_EMAIL_FROM: process.env.AUTH_EMAIL_FROM,
+    NEXT_PUBLIC_MAGIC_LINK: process.env.NEXT_PUBLIC_MAGIC_LINK,
   });
 
   if (!parsed.success) {

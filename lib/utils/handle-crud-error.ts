@@ -1,5 +1,5 @@
-import { toast } from "sonner";
 import { isApiError } from "@/lib/api/api-error";
+import { pushInlineFeedback } from "@/lib/feedback/inline-feedback-store";
 import { logger } from "@/lib/logger";
 
 export interface HandleCrudErrorOptions {
@@ -24,18 +24,18 @@ export function crudErrorMessage(error: unknown, action: string): string {
   return `Could not ${action}.`;
 }
 
-/** Log and toast a failed write. Returns the message. */
+/** Log and show an inline sentence for a failed write. Returns the message. */
 export function handleCrudError(error: unknown, options: HandleCrudErrorOptions): string {
   const message = crudErrorMessage(error, options.action);
   logger.error("Mutation failed", {
     action: options.action,
     error: error instanceof Error ? error.message : "unknown",
   });
-  toast.error(message);
+  pushInlineFeedback("short", message);
   return message;
 }
 
-/** Toast a successful write. */
+/** Show an inline sentence for a successful write. */
 export function notifyCrudSuccess(message: string): void {
-  toast.success(message);
+  pushInlineFeedback("low", message);
 }

@@ -16,6 +16,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run typecheck
+      - name: Lint
+        run: npm run lint
       - run: npm test
       - name: P0 review bar
         run: |
@@ -43,8 +45,8 @@ jobs:
           DATABASE_URL_UNPOOLED: ${{ secrets.DATABASE_URL_UNPOOLED }}
         run: |
           if [ -z "$DATABASE_URL" ]; then
-            echo "DATABASE_URL secret not set — skipping integration (document manual gate)."
-            exit 0
+            echo "DATABASE_URL secret is not set. Main requires the integration gate; failing."
+            exit 1
           fi
           npm run db:migrate
           npm run test:integration

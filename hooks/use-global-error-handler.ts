@@ -9,11 +9,11 @@ import {
 import { handleFetchError, type HandleFetchErrorOptions } from "@/lib/utils/handle-fetch-error";
 
 export interface GlobalErrorHandler {
-  /** Failed create, update, or delete: log and toast. */
+  /** Failed create, update, or delete: log and show an inline sentence. */
   handleCrudError: (error: unknown, options: HandleCrudErrorOptions) => string;
   /** Failed read: log and toast unless `notify` is false. */
   handleFetchError: (error: unknown, options: HandleFetchErrorOptions) => string;
-  /** Successful create, update, or delete. */
+  /** Successful create, update, or delete: one short inline sentence. */
   notifySuccess: (message: string) => void;
 }
 

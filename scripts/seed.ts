@@ -5,6 +5,16 @@ import { logger } from "../lib/logger";
 
 config({ path: ".env" });
 
+/**
+ * Default: post-paycheck demo (paycheck settled, Spending 1,570, checking 5,000).
+ * `PRE_PAYCHECK=1` or `--pre-paycheck`: docs/09 starting balances, paycheck not yet posted.
+ */
+const PRE_PAYCHECK = process.env.PRE_PAYCHECK === "1" || process.argv.includes("--pre-paycheck");
+
+const BALANCES = PRE_PAYCHECK
+  ? { checking: "2000.00", rent: "0.00", electric: "40.00", car: "400.00", vacation: "1000.00", spending: "80.00" }
+  : { checking: "5000.00", rent: "1200.00", electric: "150.00", car: "600.00", vacation: "1000.00", spending: "1570.00" };
+
 async function main(): Promise<void> {
   const pool = getUnpooledPool();
   const client = await pool.connect();
@@ -51,9 +61,9 @@ async function main(): Promise<void> {
 
     await client.query(
       `INSERT INTO accounts (id, tenant_id, name, current_balance, is_everyday, updated_at)
-       VALUES ($1, $2, 'Checking', 5000.00, TRUE, NOW())
-       ON CONFLICT (id) DO UPDATE SET current_balance = 5000.00, updated_at = NOW()`,
-      [HARBOR.accountId, HARBOR.tenantId],
+       VALUES ($1, $2, 'Checking', $3, TRUE, NOW())
+       ON CONFLICT (id) DO UPDATE SET current_balance = EXCLUDED.current_balance, updated_at = NOW()`,
+      [HARBOR.accountId, HARBOR.tenantId, BALANCES.checking],
     );
 
     // Clear dependent rows for re-seed
@@ -67,12 +77,12 @@ async function main(): Promise<void> {
     await client.query(
       `INSERT INTO envelopes (id, tenant_id, name, tier_category, priority_order, current_balance, target_cap, monthly_installment, rollover_policy)
        VALUES
-         ($1, $7, 'Rent', 'fixed', 1, 1200.00, 1200.00, NULL, 'top_up'),
-         ($2, $7, 'Electricity', 'fixed', 2, 150.00, 150.00, NULL, 'top_up'),
-         ($3, $7, 'Car insurance', 'sinking', 1, 600.00, 1000.00, 200.00, 'accumulate'),
-         ($4, $7, 'Vacation', 'sinking', 2, 1000.00, 1000.00, 100.00, 'accumulate'),
+         ($1, $7, 'Rent', 'fixed', 1, $8, 1200.00, NULL, 'top_up'),
+         ($2, $7, 'Electricity', 'fixed', 2, $9, 150.00, NULL, 'top_up'),
+         ($3, $7, 'Car insurance', 'sinking', 1, $10, 1000.00, 200.00, 'accumulate'),
+         ($4, $7, 'Vacation', 'sinking', 2, $11, 1000.00, 100.00, 'accumulate'),
          ($5, $7, 'Emergency', 'sinking', 3, 0.00, NULL, 0.00, 'accumulate'),
-         ($6, $7, 'Spending', 'discretionary', 1, 1570.00, NULL, NULL, 'reset_sweep')`,
+         ($6, $7, 'Spending', 'discretionary', 1, $12, NULL, NULL, 'reset_sweep')`,
       [
         HARBOR.rentId,
         HARBOR.electricId,
@@ -81,6 +91,11 @@ async function main(): Promise<void> {
         HARBOR.emergencyId,
         HARBOR.spendingId,
         HARBOR.tenantId,
+        BALANCES.rent,
+        BALANCES.electric,
+        BALANCES.car,
+        BALANCES.vacation,
+        BALANCES.spending,
       ],
     );
 
@@ -104,43 +119,50 @@ async function main(): Promise<void> {
       ],
     );
 
-    await client.query(
-      `INSERT INTO transactions
-         (id, tenant_id, account_id, envelope_id, amount, booked_at, booked_date, memo, settled_at, idempotency_key)
-       VALUES
-         ($1, $2, $3, NULL, 3000.00, '2026-11-04T15:00:00Z', '2026-11-04', 'Payday', NOW(), 'seed-paycheck-2026-11-04')`,
-      [HARBOR.paycheckTxnId, HARBOR.tenantId, HARBOR.accountId],
-    );
+    if (!PRE_PAYCHECK) {
+      await client.query(
+        `INSERT INTO transactions
+           (id, tenant_id, account_id, envelope_id, amount, booked_at, booked_date, memo, settled_at, idempotency_key)
+         VALUES
+           ($1, $2, $3, NULL, 3000.00, '2026-11-04T15:00:00Z', '2026-11-04', 'Payday', NOW(), 'seed-paycheck-2026-11-04')`,
+        [HARBOR.paycheckTxnId, HARBOR.tenantId, HARBOR.accountId],
+      );
 
-    await client.query(
-      `INSERT INTO allowance_snapshots
-         (tenant_id, as_of_date, s_daily, s_today, n_p, o_unfunded, mitigated, next_payday, computed_at)
-       VALUES ($1, '2026-11-04', 112.14, 112.18, 14, 0.00, FALSE, '2026-11-18', NOW())
-       ON CONFLICT (tenant_id) DO UPDATE SET
-         as_of_date = EXCLUDED.as_of_date,
-         s_daily = EXCLUDED.s_daily,
-         s_today = EXCLUDED.s_today,
-         n_p = EXCLUDED.n_p,
-         next_payday = EXCLUDED.next_payday,
-         computed_at = NOW()`,
-      [HARBOR.tenantId],
-    );
+      await client.query(
+        `INSERT INTO allowance_snapshots
+           (tenant_id, as_of_date, s_daily, s_today, n_p, o_unfunded, mitigated, next_payday, computed_at)
+         VALUES ($1, '2026-11-04', 112.14, 112.18, 14, 0.00, FALSE, '2026-11-18', NOW())
+         ON CONFLICT (tenant_id) DO UPDATE SET
+           as_of_date = EXCLUDED.as_of_date,
+           s_daily = EXCLUDED.s_daily,
+           s_today = EXCLUDED.s_today,
+           n_p = EXCLUDED.n_p,
+           next_payday = EXCLUDED.next_payday,
+           computed_at = NOW()`,
+        [HARBOR.tenantId],
+      );
 
-    // Minimal forecast day 0 for Ahead
-    await client.query(
-      `INSERT INTO forecast_days
-         (tenant_id, day_offset, forecast_date, balance, inflow, scheduled_outflow, assumed_burn, status)
-       VALUES ($1, 0, '2026-11-04', 5000.00, 0, 0, 0, 'ok')
-       ON CONFLICT (tenant_id, day_offset) DO UPDATE SET balance = 5000.00`,
-      [HARBOR.tenantId],
-    );
+      // Minimal forecast day 0 for Ahead
+      await client.query(
+        `INSERT INTO forecast_days
+           (tenant_id, day_offset, forecast_date, balance, inflow, scheduled_outflow, assumed_burn, status)
+         VALUES ($1, 0, '2026-11-04', 5000.00, 0, 0, 0, 'ok')
+         ON CONFLICT (tenant_id, day_offset) DO UPDATE SET balance = 5000.00`,
+        [HARBOR.tenantId],
+      );
+    }
 
     await client.query("COMMIT");
     logger.info("Harbor seed complete", {
       tenantId: HARBOR.tenantId,
       blairId: HARBOR.blairId,
+      mode: PRE_PAYCHECK ? "pre-paycheck (docs/09 start)" : "post-paycheck demo",
     });
-    logger.info("Run npm run db:refresh to recompute the 60-day forecast");
+    if (PRE_PAYCHECK) {
+      logger.info("Post Alex's $3,000 paycheck on 2026-11-04 to run walkthrough A");
+    } else {
+      logger.info("Run npm run db:refresh to recompute the 60-day forecast");
+    }
   } catch (error: unknown) {
     await client.query("ROLLBACK");
     throw error;

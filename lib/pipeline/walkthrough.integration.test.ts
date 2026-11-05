@@ -4,6 +4,7 @@ import { getPool, withTransaction } from "@/lib/db/connection";
 import { HARBOR } from "@/lib/dev/harbor-ids";
 import { toCents } from "@/lib/money/numeric";
 import { runEvaluationPipeline } from "@/lib/pipeline/run-evaluation";
+import { pipelineService } from "@/lib/services/pipeline/PipelineService";
 import { transactionService } from "@/lib/services/transactions/TransactionService";
 
 config({ path: ".env" });
@@ -100,6 +101,39 @@ describe("Harbor walkthrough purchase", () => {
     expect(snapshot.spendingCents).toBe(153_000);
     expect(snapshot.sDailyCents).toBe(11_214);
     expect(snapshot.sTodayCents).toBe(7_218);
+
+    // Observability: the purchase wrote a finished run with ordered steps, and owners can read it.
+    const runs = await pipelineService.listRuns({
+      tenantId: HARBOR.tenantId,
+      userId: HARBOR.alexId,
+      role: "owner",
+      asOfDate: "2026-11-04",
+      limit: 1,
+      includeSteps: true,
+    });
+    const latest = runs[0];
+    expect(latest).toBeDefined();
+    expect(latest.status).toBe("ok");
+    const stepNames = (latest.steps ?? []).map((step) => step.step);
+    expect(stepNames).toEqual(
+      expect.arrayContaining(["settle", "rate", "project", "floor_check", "publish"]),
+    );
+    expect(stepNames[0]).toBe("settle");
+    expect(stepNames[stepNames.length - 1]).toBe("publish");
+    const single = await pipelineService.getRun({
+      tenantId: HARBOR.tenantId,
+      userId: HARBOR.alexId,
+      role: "owner",
+      runId: latest.id,
+    });
+    expect(single?.steps?.length).toBe(latest.steps?.length);
+    await expect(
+      pipelineService.listRuns({
+        tenantId: HARBOR.tenantId,
+        userId: HARBOR.blairId,
+        role: "member",
+      }),
+    ).rejects.toThrow("Forbidden");
     },
     30_000,
   );

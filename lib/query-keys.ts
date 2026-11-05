@@ -25,6 +25,11 @@ export const queryKeys = {
     all: ["accounts"] as const,
     list: () => [...queryKeys.accounts.all, "list"] as const,
   },
+  pipeline: {
+    all: ["pipeline"] as const,
+    list: (limit: number) => [...queryKeys.pipeline.all, "list", limit] as const,
+    detail: (id: string) => [...queryKeys.pipeline.all, "detail", id] as const,
+  },
   proposals: {
     all: ["proposals"] as const,
     list: () => [...queryKeys.proposals.all, "list"] as const,

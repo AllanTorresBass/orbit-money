@@ -3,19 +3,23 @@
 import { signIn } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
-import { toast } from "sonner";
 import { isClientDevHeaderAuthEnabled } from "@/lib/auth/dev-header-auth";
+import { isMagicLinkUiEnabled } from "@/lib/auth/magic-link";
 import { setActorUserId, setTenantId } from "@/lib/dev/actor-store";
 import { HARBOR } from "@/lib/dev/harbor-ids";
+import { InlineBanner } from "@/components/shell/inline-banner";
 
 function SignInForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [email, setEmail] = useState("blair@harbor.test");
   const [saving, setSaving] = useState(false);
+  const [notice, setNotice] = useState<{ tone: "low" | "short"; text: string } | null>(null);
+  const magicLinkEnabled = isMagicLinkUiEnabled();
 
   async function onContinue(): Promise<void> {
     setSaving(true);
+    setNotice(null);
     try {
       const normalized = email.trim().toLowerCase();
       const result = await signIn("credentials", {
@@ -42,7 +46,6 @@ function SignInForm() {
         }
       }
 
-      toast.success("Signed in");
       const callbackUrl = searchParams.get("callbackUrl") ?? "/today";
       router.push(callbackUrl.startsWith("/") ? callbackUrl : "/today");
       router.refresh();
@@ -53,6 +56,7 @@ function SignInForm() {
 
   async function onMagicLink(): Promise<void> {
     setSaving(true);
+    setNotice(null);
     try {
       const normalized = email.trim().toLowerCase();
       const result = await signIn("resend", {
@@ -61,10 +65,15 @@ function SignInForm() {
         callbackUrl: searchParams.get("callbackUrl") ?? "/today",
       });
       if (result?.error) {
-        router.push(`/create?email=${encodeURIComponent(normalized)}`);
+        if (result.error === "AccessDenied") {
+          // Unknown email: no link is sent. Spec sends them to Create.
+          router.push(`/create?email=${encodeURIComponent(normalized)}`);
+          return;
+        }
+        setNotice({ tone: "short", text: "We could not send that link. Try again in a moment." });
         return;
       }
-      toast.success("Check your email for a sign-in link");
+      setNotice({ tone: "low", text: "Check your email for a sign-in link." });
     } finally {
       setSaving(false);
     }
@@ -95,16 +104,23 @@ function SignInForm() {
       >
         Continue
       </button>
-      <button
-        type="button"
-        disabled={saving}
-        onClick={() => {
-          void onMagicLink();
-        }}
-        className="mt-3 w-full border border-[var(--orbit-line)] py-3 text-[17px] text-[var(--orbit-ink)] disabled:opacity-60"
-      >
-        Email me a link
-      </button>
+      {magicLinkEnabled ? (
+        <button
+          type="button"
+          disabled={saving}
+          onClick={() => {
+            void onMagicLink();
+          }}
+          className="mt-3 w-full border border-[var(--orbit-line)] py-3 text-[17px] text-[var(--orbit-ink)] disabled:opacity-60"
+        >
+          Email me a link
+        </button>
+      ) : null}
+      {notice ? (
+        <InlineBanner tone={notice.tone} className="mt-6">
+          {notice.text}
+        </InlineBanner>
+      ) : null}
       <p className="mt-6 text-[13px] text-[var(--orbit-secondary)]">
         Try alex@harbor.test, blair@harbor.test, or casey@harbor.test. New email opens Create.
       </p>

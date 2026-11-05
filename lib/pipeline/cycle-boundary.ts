@@ -7,6 +7,12 @@ import { logger } from "@/lib/logger";
 import { fromCents, toCents } from "@/lib/money/numeric";
 import type { EnvelopeState } from "@/types/envelope/envelope.types";
 
+export interface StoredSweepMove {
+  envelopeId: string;
+  amountCents: number;
+  applied: boolean;
+}
+
 function toRRuleDate(iso: string): Date {
   const [y, m, d] = iso.split("-").map(Number);
   return new Date(Date.UTC(y, m - 1, d, 12, 0, 0));
@@ -14,6 +20,31 @@ function toRRuleDate(iso: string): Date {
 
 function toIsoDate(date: Date): string {
   return DateTime.fromJSDate(date, { zone: "utc" }).toISODate() ?? "";
+}
+
+function parseStoredMoves(raw: unknown): StoredSweepMove[] {
+  if (!Array.isArray(raw)) return [];
+  const moves: StoredSweepMove[] = [];
+  for (const item of raw) {
+    if (
+      typeof item !== "object" ||
+      item === null ||
+      !("envelopeId" in item) ||
+      !("amountCents" in item)
+    ) {
+      continue;
+    }
+    const row = item as Record<string, unknown>;
+    if (typeof row.envelopeId !== "string" || typeof row.amountCents !== "number") {
+      continue;
+    }
+    moves.push({
+      envelopeId: row.envelopeId,
+      amountCents: row.amountCents,
+      applied: row.applied === true,
+    });
+  }
+  return moves;
 }
 
 /** True when today is the last day of the pay cycle (next inflow is tomorrow). */
@@ -24,8 +55,10 @@ export function isCycleEndDay(today: string, nextPayday: string | null): boolean
 
 /**
  * Move leftover discretionary into sinking funds (D6).
- * Inserts a pending sweep row, applies moves, then marks applied.
- * Retries finish a pending row; applied rows are no-ops that report stored incomplete.
+ * Inserts a pending sweep row with the planned moves JSONB, applies each move
+ * once (marking it applied), then marks the row applied.
+ * Retries resume from stored moves — never recompute a full plan from
+ * post-move balances. Applied rows are no-ops that report stored incomplete.
  */
 export async function applyCycleEndSweep(
   client: PoolClient,
@@ -57,8 +90,9 @@ export async function applyCycleEndSweep(
     amount: string;
     incomplete: boolean;
     status: string;
+    moves: unknown;
   }>(
-    `SELECT amount::text, incomplete, status
+    `SELECT amount::text, incomplete, status, moves
      FROM cycle_sweeps
      WHERE tenant_id = $1 AND cycle_end_date = $2::date
      FOR UPDATE`,
@@ -77,80 +111,149 @@ export async function applyCycleEndSweep(
     };
   }
 
-  const plan = sweepDiscretionaryAtCycleEnd({
-    discretionaryBalanceCents: input.discretionary.currentBalanceCents,
-    discretionaryId: input.discretionary.id,
-    sinkingEnvelopes: sinks,
-    sweepEnvelopeId: input.discretionary.sweepEnvelopeId,
-  });
-  const totalCents = plan.moves.reduce((sum, m) => sum + m.amountCents, 0);
+  let moves: StoredSweepMove[];
+  let incomplete: boolean;
+  let leftoverCents: number;
+  let totalCents: number;
+  let discApplied = false;
 
   if (!existing.rows[0]) {
+    const plan = sweepDiscretionaryAtCycleEnd({
+      discretionaryBalanceCents: input.discretionary.currentBalanceCents,
+      discretionaryId: input.discretionary.id,
+      sinkingEnvelopes: sinks,
+      sweepEnvelopeId: input.discretionary.sweepEnvelopeId,
+    });
+    moves = plan.moves.map((m) => ({
+      envelopeId: m.envelopeId,
+      amountCents: m.amountCents,
+      applied: false,
+    }));
+    incomplete = plan.incomplete;
+    leftoverCents = plan.leftoverCents;
+    totalCents = moves.reduce((sum, m) => sum + m.amountCents, 0);
+
     await client.query(
       `INSERT INTO cycle_sweeps
-         (tenant_id, cycle_end_date, amount, destination_envelope_id, incomplete, status)
-       VALUES ($1, $2::date, $3, $4, $5, 'pending')`,
+         (tenant_id, cycle_end_date, amount, destination_envelope_id, incomplete, status, moves)
+       VALUES ($1, $2::date, $3, $4, $5, 'pending', $6::jsonb)`,
       [
         input.tenantId,
         input.cycleEndDate,
         fromCents(totalCents),
         destinationId,
-        plan.incomplete,
+        incomplete,
+        JSON.stringify({ items: moves, discApplied: false, leftoverCents }),
       ],
     );
   } else {
-    // Pending row from a crashed prior attempt — refresh plan amounts and finish moves.
-    await client.query(
-      `UPDATE cycle_sweeps
-       SET amount = $1, incomplete = $2, destination_envelope_id = $3
-       WHERE tenant_id = $4 AND cycle_end_date = $5::date AND status = 'pending'`,
-      [
-        fromCents(totalCents),
-        plan.incomplete,
-        destinationId,
-        input.tenantId,
-        input.cycleEndDate,
-      ],
-    );
+    // Resume from the stored plan — do not recompute from current balances.
+    const payload = existing.rows[0].moves;
+    const record =
+      typeof payload === "object" && payload !== null && !Array.isArray(payload)
+        ? (payload as Record<string, unknown>)
+        : { items: payload };
+    moves = parseStoredMoves(record.items ?? payload);
+    leftoverCents =
+      typeof record.leftoverCents === "number"
+        ? record.leftoverCents
+        : Math.max(
+            0,
+            input.discretionary.currentBalanceCents -
+              moves.filter((m) => !m.applied).reduce((s, m) => s + m.amountCents, 0),
+          );
+    incomplete = existing.rows[0].incomplete;
+    totalCents = moves.reduce((sum, m) => sum + m.amountCents, 0);
+    discApplied = record.discApplied === true;
+
+    // Already finished the envelope moves but crashed before status flip.
+    if (
+      moves.every((m) => m.applied) &&
+      (discApplied || totalCents === 0) &&
+      input.discretionary.currentBalanceCents <= leftoverCents
+    ) {
+      await client.query(
+        `UPDATE cycle_sweeps
+         SET status = 'applied'
+         WHERE tenant_id = $1 AND cycle_end_date = $2::date`,
+        [input.tenantId, input.cycleEndDate],
+      );
+      return {
+        sweptCents: totalCents,
+        incomplete,
+        discretionaryBalanceCents: input.discretionary.currentBalanceCents,
+      };
+    }
   }
 
-  for (const move of plan.moves) {
+  for (let i = 0; i < moves.length; i += 1) {
+    const move = moves[i];
+    if (move.applied) continue;
     await client.query(
       `UPDATE envelopes
        SET current_balance = current_balance + $1
        WHERE id = $2 AND tenant_id = $3`,
       [fromCents(move.amountCents), move.envelopeId, input.tenantId],
     );
+    moves[i] = { ...move, applied: true };
+    await client.query(
+      `UPDATE cycle_sweeps
+       SET moves = $1::jsonb
+       WHERE tenant_id = $2 AND cycle_end_date = $3::date AND status = 'pending'`,
+      [
+        JSON.stringify({ items: moves, discApplied, leftoverCents }),
+        input.tenantId,
+        input.cycleEndDate,
+      ],
+    );
   }
 
-  if (totalCents > 0) {
+  if (totalCents > 0 && !discApplied) {
     await client.query(
       `UPDATE envelopes
        SET current_balance = current_balance - $1
        WHERE id = $2 AND tenant_id = $3`,
       [fromCents(totalCents), input.discretionary.id, input.tenantId],
     );
+    discApplied = true;
+    await client.query(
+      `UPDATE cycle_sweeps
+       SET moves = $1::jsonb
+       WHERE tenant_id = $2 AND cycle_end_date = $3::date AND status = 'pending'`,
+      [
+        JSON.stringify({ items: moves, discApplied: true, leftoverCents }),
+        input.tenantId,
+        input.cycleEndDate,
+      ],
+    );
   }
 
   await client.query(
     `UPDATE cycle_sweeps
-     SET status = 'applied', incomplete = $1, amount = $2
-     WHERE tenant_id = $3 AND cycle_end_date = $4::date`,
-    [plan.incomplete, fromCents(totalCents), input.tenantId, input.cycleEndDate],
+     SET status = 'applied', incomplete = $1, amount = $2,
+         moves = $3::jsonb
+     WHERE tenant_id = $4 AND cycle_end_date = $5::date`,
+    [
+      incomplete,
+      fromCents(totalCents),
+      JSON.stringify({ items: moves, discApplied: true, leftoverCents }),
+      input.tenantId,
+      input.cycleEndDate,
+    ],
   );
 
   logger.info("Cycle sweep applied", {
     tenantId: input.tenantId,
     cycleEndDate: input.cycleEndDate,
     sweptCents: totalCents,
-    incomplete: plan.incomplete,
-    moveCount: plan.moves.length,
+    incomplete,
+    moveCount: moves.length,
   });
 
   return {
     sweptCents: totalCents,
-    incomplete: plan.incomplete,
-    discretionaryBalanceCents: plan.leftoverCents,
+    incomplete,
+    discretionaryBalanceCents: leftoverCents,
   };
 }
 

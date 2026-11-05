@@ -109,4 +109,104 @@ describe("Harbor cycle sweep", () => {
     },
     30_000,
   );
+
+  it(
+    "pending mid-state resume applies only missing moves (no double-sweep)",
+    async () => {
+      const cycleEnd = "2026-11-17";
+      await withTransaction(null, async (client) => {
+        await client.query("SELECT set_config('app.bypass_rls', 'on', true)");
+        await client.query(`DELETE FROM cycle_sweeps WHERE tenant_id = $1`, [HARBOR.tenantId]);
+        // Ensure moves column exists (007) for this environment.
+        await client.query(
+          `ALTER TABLE cycle_sweeps
+           ADD COLUMN IF NOT EXISTS moves JSONB NOT NULL DEFAULT '[]'::jsonb`,
+        );
+        await client.query(`UPDATE envelopes SET current_balance = 500.00 WHERE id = $1`, [
+          HARBOR.spendingId,
+        ]);
+        await client.query(`UPDATE envelopes SET current_balance = 600.00 WHERE id = $1`, [
+          HARBOR.carId,
+        ]);
+        await client.query(`UPDATE envelopes SET current_balance = 100.00 WHERE id = $1`, [
+          HARBOR.emergencyId,
+        ]);
+
+        // Simulate a crash after Car was topped up ($400) but before Spending
+        // was reduced and before status flipped to applied.
+        const moves = {
+          items: [
+            { envelopeId: HARBOR.carId, amountCents: 40_000, applied: true },
+            { envelopeId: HARBOR.emergencyId, amountCents: 10_000, applied: false },
+          ],
+          discApplied: false,
+          leftoverCents: 0,
+        };
+        await client.query(
+          `INSERT INTO cycle_sweeps
+             (tenant_id, cycle_end_date, amount, destination_envelope_id, incomplete, status, moves)
+           VALUES ($1, $2::date, 500.00, $3, FALSE, 'pending', $4::jsonb)`,
+          [HARBOR.tenantId, cycleEnd, HARBOR.carId, JSON.stringify(moves)],
+        );
+        await client.query(`UPDATE envelopes SET current_balance = 1000.00 WHERE id = $1`, [
+          HARBOR.carId,
+        ]);
+
+        await client.query(
+          `UPDATE scheduled_schedules SET next_due_date = '2026-11-18' WHERE id = $1`,
+          [HARBOR.paydayScheduleId],
+        );
+        await client.query("SELECT set_config('app.current_tenant_id', $1, true)", [
+          HARBOR.tenantId,
+        ]);
+        await client.query("SELECT set_config('app.bypass_rls', 'off', true)");
+
+        await runEvaluationPipeline(client, {
+          tenantId: HARBOR.tenantId,
+          userId: HARBOR.blairId,
+          trigger: "midnight",
+          asOfDate: cycleEnd,
+        });
+      });
+
+      const after = await withTransaction(
+        { tenantId: HARBOR.tenantId, userId: HARBOR.blairId },
+        async (client) => {
+          const spend = await client.query<{ current_balance: string }>(
+            `SELECT current_balance::text FROM envelopes WHERE id = $1`,
+            [HARBOR.spendingId],
+          );
+          const car = await client.query<{ current_balance: string }>(
+            `SELECT current_balance::text FROM envelopes WHERE id = $1`,
+            [HARBOR.carId],
+          );
+          const emergency = await client.query<{ current_balance: string }>(
+            `SELECT current_balance::text FROM envelopes WHERE id = $1`,
+            [HARBOR.emergencyId],
+          );
+          const sweep = await client.query<{ status: string; amount: string }>(
+            `SELECT status, amount::text FROM cycle_sweeps
+             WHERE tenant_id = $1 AND cycle_end_date = $2::date`,
+            [HARBOR.tenantId, cycleEnd],
+          );
+          return {
+            spendingCents: toCents(spend.rows[0]?.current_balance ?? "0"),
+            carCents: toCents(car.rows[0]?.current_balance ?? "0"),
+            emergencyCents: toCents(emergency.rows[0]?.current_balance ?? "0"),
+            status: sweep.rows[0]?.status,
+            sweptCents: toCents(sweep.rows[0]?.amount ?? "0"),
+          };
+        },
+      );
+
+      // Car already had the $400 move — must not receive another $400.
+      expect(after.carCents).toBe(100_000);
+      // Emergency receives only the remaining $100 move.
+      expect(after.emergencyCents).toBe(20_000);
+      expect(after.spendingCents).toBe(0);
+      expect(after.status).toBe("applied");
+      expect(after.sweptCents).toBe(50_000);
+    },
+    30_000,
+  );
 });

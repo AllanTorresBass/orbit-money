@@ -1,4 +1,5 @@
 import type { PoolClient } from "pg";
+import { getPool } from "@/lib/db/connection";
 import { logger } from "@/lib/logger";
 import { fromCents } from "@/lib/money/numeric";
 import type { PipelineStep, PipelineStepEvent } from "@/types/pipeline/pipeline.types";
@@ -43,8 +44,9 @@ export async function recordPipelineStep(
   emitPipelineStep(event);
 
   await client.query(
-    `INSERT INTO pipeline_steps (run_id, tenant_id, step, duration_ms, payload)
-     VALUES ($1, $2, $3, $4, $5::jsonb)`,
+    // clock_timestamp(), not NOW(): steps share one transaction and must stay ordered.
+    `INSERT INTO pipeline_steps (run_id, tenant_id, step, started_at, duration_ms, payload)
+     VALUES ($1, $2, $3, clock_timestamp(), $4, $5::jsonb)`,
     [
       ctx.runId,
       ctx.tenantId,
@@ -63,6 +65,9 @@ export async function recordPipelineStep(
         idempotencyHit: payload.idempotencyHit,
         sweepIncomplete: payload.sweepIncomplete,
         forecastStale: payload.forecastStale,
+        sweptCents: payload.sweptCents,
+        advancedOutflows: payload.advancedOutflows,
+        advancedInflows: payload.advancedInflows,
       }),
     ],
   );
@@ -135,4 +140,99 @@ export async function finishPipelineRun(
       input.errorCode ?? null,
     ],
   );
+}
+
+/** Short, PII-free code for `pipeline_runs.error_code` (VARCHAR(64)). */
+export function classifyPipelineError(error: unknown): string {
+  if (typeof error === "object" && error !== null) {
+    const code = (error as Record<string, unknown>).code;
+    if (typeof code === "string" && /^[0-9A-Z]{5}$/.test(code)) {
+      return `pg_${code}`;
+    }
+  }
+  if (error instanceof Error) {
+    const message = error.message.toLowerCase();
+    if (message.includes("discretionary")) return "missing_discretionary";
+    if (message.includes("tenant not found")) return "tenant_not_found";
+    if (message.includes("debit requires")) return "debit_without_envelope";
+  }
+  return "pipeline_exception";
+}
+
+/**
+ * Record a failed run on its own connection. The caller's transaction rolls back (a
+ * transaction must settle once), so the error row has to commit separately or it vanishes.
+ */
+export async function persistFailedPipelineRun(
+  ctx: PipelineRunContext,
+  input: { transactionId?: string; error: unknown },
+): Promise<void> {
+  const errorCode = classifyPipelineError(input.error);
+  let client: PoolClient | null = null;
+  try {
+    client = await getPool().connect();
+    await client.query("BEGIN");
+    await client.query("SELECT set_config('app.bypass_rls', 'on', true)");
+    await client.query(
+      `INSERT INTO pipeline_runs
+         (id, tenant_id, trigger, as_of_date, transaction_id, cron_batch_id, status)
+       VALUES ($1, $2, $3, $4::date, $5, $6, 'running')
+       ON CONFLICT (id) DO NOTHING`,
+      [
+        ctx.runId,
+        ctx.tenantId,
+        ctx.trigger,
+        ctx.asOfDate,
+        input.transactionId ?? null,
+        ctx.cronBatchId ?? null,
+      ],
+    );
+    await finishPipelineRun(client, {
+      runId: ctx.runId,
+      status: "error",
+      forecastStale: false,
+      cutsApplied: 0,
+      oUnfundedCents: null,
+      sDailyCents: null,
+      sTodayCents: null,
+      nP: null,
+      sweepIncomplete: false,
+      errorCode,
+    });
+    await client.query("COMMIT");
+  } catch (persistError: unknown) {
+    if (client) {
+      await client.query("ROLLBACK").catch(() => undefined);
+    }
+    logger.error("Could not persist failed pipeline run", {
+      runId: ctx.runId,
+      tenantId: ctx.tenantId,
+      error: persistError instanceof Error ? persistError.message : "unknown",
+    });
+  } finally {
+    client?.release();
+  }
+}
+
+/** Retention: runs (and, by cascade, steps) older than `days`. Returns rows deleted. */
+export async function prunePipelineRuns(client: PoolClient, days: number): Promise<number> {
+  const result = await client.query(
+    `DELETE FROM pipeline_runs WHERE started_at < NOW() - make_interval(days => $1::int)`,
+    [days],
+  );
+  return result.rowCount ?? 0;
+}
+
+/** Runs left `running` past `minutes` crashed without cleanup; close them as `error`. */
+export async function closeAbandonedPipelineRuns(
+  client: PoolClient,
+  minutes: number,
+): Promise<number> {
+  const result = await client.query(
+    `UPDATE pipeline_runs
+     SET status = 'error', finished_at = NOW(), error_code = 'abandoned'
+     WHERE status = 'running' AND started_at < NOW() - make_interval(mins => $1::int)`,
+    [minutes],
+  );
+  return result.rowCount ?? 0;
 }

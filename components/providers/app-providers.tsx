@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { SessionProvider } from "next-auth/react";
 import { useEffect, useState, type ReactNode } from "react";
 import { Toaster } from "sonner";
+import { MutationFeedbackBanner } from "@/components/shell/mutation-feedback-banner";
 import { api } from "@/lib/api/client";
 import { flushPurchaseQueue } from "@/lib/offline/purchase-queue";
 import { invalidateMoneyQueries } from "@/lib/query-invalidation";
@@ -68,6 +69,10 @@ export function AppProviders({ children }: AppProvidersProps) {
     <SessionProvider>
       <QueryClientProvider client={client}>
         {children}
+        {/* Save results show here, inline on the screen. The Toaster stays for rare cases only. */}
+        <div className="pointer-events-none fixed inset-x-0 top-0 z-50 mx-auto max-w-md px-6 pt-3">
+          <MutationFeedbackBanner className="pointer-events-auto bg-[var(--orbit-paper)] py-2" />
+        </div>
         <Toaster position="top-center" richColors />
       </QueryClientProvider>
     </SessionProvider>

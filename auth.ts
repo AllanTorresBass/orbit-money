@@ -1,8 +1,9 @@
+import PostgresAdapter from "@auth/pg-adapter";
 import NextAuth from "next-auth";
 import type { NextAuthConfig } from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import Resend from "next-auth/providers/resend";
-import { withTransaction } from "@/lib/db/connection";
+import { getPool, withTransaction } from "@/lib/db/connection";
 import { logger } from "@/lib/logger";
 
 declare module "next-auth" {
@@ -70,11 +71,14 @@ const providers: NextAuthConfig["providers"] = [
   }),
 ];
 
-if (process.env.AUTH_RESEND_KEY && process.env.AUTH_EMAIL_FROM) {
+const magicLinkConfigured = Boolean(process.env.AUTH_RESEND_KEY && process.env.AUTH_EMAIL_FROM);
+
+if (magicLinkConfigured) {
   providers.push(
     Resend({
       apiKey: process.env.AUTH_RESEND_KEY,
       from: process.env.AUTH_EMAIL_FROM,
+      normalizeIdentifier: (identifier: string) => identifier.trim().toLowerCase(),
       async sendVerificationRequest({ identifier, url, provider }) {
         const { host } = new URL(url);
         const res = await fetch("https://api.resend.com/emails", {
@@ -103,11 +107,17 @@ if (process.env.AUTH_RESEND_KEY && process.env.AUTH_EMAIL_FROM) {
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   providers,
+  // Verification tokens live in Postgres (007_auth_tables.sql). Sessions remain JWT.
+  adapter: magicLinkConfigured ? PostgresAdapter(getPool()) : undefined,
   callbacks: {
     async signIn({ user, email }) {
-      // Magic-link: only existing users (unknown → Create on the sign-in page).
+      // Magic-link request: only existing users. Unknown email returns false so the
+      // sign-in page can send them to Create instead of mailing a dead link.
       if (email?.verificationRequest) {
-        return true;
+        const address = user?.email?.trim().toLowerCase();
+        if (!address) return false;
+        const existing = await resolveUserTenant(address);
+        return existing !== null;
       }
       if (user?.email) {
         const existing = await resolveUserTenant(user.email.toLowerCase());

@@ -24,6 +24,13 @@ function queuedPurchaseSentence(count: number): string {
     : `${count} purchases are saved on this phone. They send when you're back online.`;
 }
 
+/** Shown while offline with something saved on this phone. */
+function offlinePurchaseSentence(count: number): string {
+  return count === 1
+    ? "You're offline. This purchase will save when you reconnect."
+    : "You're offline. These purchases will save when you reconnect.";
+}
+
 export function TodayScreen({ className }: TodayScreenProps) {
   const me = useMe();
   const allowance = useAllowance();
@@ -107,10 +114,12 @@ export function TodayScreen({ className }: TodayScreenProps) {
 
       <div className="mt-6 space-y-4">
         {!online ? (
-          <InlineBanner>You&apos;re offline. Today&apos;s number is from earlier.</InlineBanner>
-        ) : null}
-
-        {queuedPurchases > 0 ? (
+          <InlineBanner>
+            {queuedPurchases > 0
+              ? offlinePurchaseSentence(queuedPurchases)
+              : "You're offline. Today's number is from earlier."}
+          </InlineBanner>
+        ) : queuedPurchases > 0 ? (
           <InlineBanner>{queuedPurchaseSentence(queuedPurchases)}</InlineBanner>
         ) : null}
 
@@ -125,7 +134,7 @@ export function TodayScreen({ className }: TodayScreenProps) {
         ) : null}
 
         {bannerLabel && bannerDate ? (
-          <InlineBanner tone="short" href="/ahead">
+          <InlineBanner tone="short" href={`/ahead?date=${bannerDate}`}>
             {bannerLabel}
           </InlineBanner>
         ) : null}

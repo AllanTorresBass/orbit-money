@@ -1,14 +1,16 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useSession } from "next-auth/react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useState } from "react";
 import { useForm, useWatch, type FieldPath } from "react-hook-form";
 import { useCreateTenant } from "@/hooks/use-create-tenant";
 import { setActorUserId, setTenantId } from "@/lib/dev/actor-store";
 import { cn } from "@/lib/utils";
 import { rrulesForCadence } from "@/lib/utils/cadence";
 import { parseDollarsToCents } from "@/lib/utils/money-input";
+import { resolveOwnerEmail } from "@/lib/utils/owner-email";
 import {
   CADENCES,
   PAYDAY_DAY_CHOICES,
@@ -26,8 +28,10 @@ const STEP_FIELDS: Record<1 | 2 | 3, FieldPath<CreateSpaceForm>[]> = {
 const FIELD_CLASS =
   "mt-2 block w-full border-b border-[var(--orbit-line)] bg-transparent py-2 text-[17px] text-[var(--orbit-ink)] outline-none";
 
-export default function CreatePage() {
+function CreateForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const { data: session } = useSession();
   const createTenant = useCreateTenant();
   const [step, setStep] = useState<1 | 2 | 3>(1);
 
@@ -54,6 +58,11 @@ export default function CreatePage() {
     const paydayAmountCents = parseDollarsToCents(values.amount);
     if (paydayAmountCents === null) return;
     const name = values.name.trim();
+    const owner = resolveOwnerEmail({
+      queryEmail: searchParams.get("email"),
+      sessionEmail: session?.user?.email ?? null,
+      spaceName: name,
+    });
     const rrules = rrulesForCadence(values.cadence, {
       firstDay: values.firstDay,
       secondDay: values.secondDay,
@@ -64,8 +73,8 @@ export default function CreatePage() {
       {
         name,
         tenantType: values.tenantType,
-        ownerEmail: `${name.toLowerCase().replace(/\s+/g, ".") || "owner"}@orbit.local`,
-        ownerName: "Owner",
+        ownerEmail: owner.email,
+        ownerName: owner.name,
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "America/New_York",
         paydayAmountCents,
         nextPayday: values.nextPayday,
@@ -285,5 +294,17 @@ export default function CreatePage() {
         </>
       ) : null}
     </form>
+  );
+}
+
+export default function CreatePage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="mx-auto max-w-md px-6 py-16 text-[var(--orbit-secondary)]">Loading…</div>
+      }
+    >
+      <CreateForm />
+    </Suspense>
   );
 }

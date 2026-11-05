@@ -41,12 +41,13 @@ describe("Harbor paycheck A", () => {
         await client.query(`UPDATE envelopes SET current_balance = 80.00 WHERE id = $1`, [
           HARBOR.spendingId,
         ]);
+        // Allocations reference transactions, so they go first.
         await client.query(
-          `DELETE FROM transactions WHERE tenant_id = $1`,
+          `DELETE FROM allocations WHERE tenant_id = $1`,
           [HARBOR.tenantId],
         );
         await client.query(
-          `DELETE FROM allocations WHERE tenant_id = $1`,
+          `DELETE FROM transactions WHERE tenant_id = $1`,
           [HARBOR.tenantId],
         );
         await client.query(

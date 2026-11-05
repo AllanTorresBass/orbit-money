@@ -22,12 +22,13 @@ import {
 } from "@/lib/pipeline/cycle-boundary";
 import {
   finishPipelineRun,
+  persistFailedPipelineRun,
   recordPipelineStep,
   startPipelineRun,
   type PipelineRunContext,
 } from "@/lib/pipeline/telemetry";
 import type { EnvelopeState } from "@/types/envelope/envelope.types";
-import type { PipelineRunSummary } from "@/types/pipeline/pipeline.types";
+import type { PipelineRunSummary, ScheduleSourceRow } from "@/types/pipeline/pipeline.types";
 
 export type { PipelineRunSummary };
 
@@ -76,26 +77,38 @@ async function loadEnvelopes(client: PoolClient, tenantId: string): Promise<Enve
   return result.rows.map(mapEnvelope);
 }
 
-async function loadScheduleDueRows(
+/** One load of active schedules, including the RRULE, for both due amounts and expansion. */
+async function loadScheduleRows(
   client: PoolClient,
   tenantId: string,
-): Promise<ScheduleDueRow[]> {
+): Promise<ScheduleSourceRow[]> {
   const result = await client.query<{
     envelope_id: string | null;
     amount: string;
     next_due_date: string;
     direction: string;
+    recurrence_rrule: string;
   }>(
-    `SELECT envelope_id, amount::text, next_due_date::text, direction
+    `SELECT envelope_id, amount::text, next_due_date::text, direction, recurrence_rrule
      FROM scheduled_schedules
      WHERE tenant_id = $1 AND is_active = TRUE`,
     [tenantId],
   );
   return result.rows.map((s) => ({
     envelopeId: s.envelope_id,
-    amountCents: toCents(s.amount),
+    amount: s.amount,
     nextDueDate: s.next_due_date,
     direction: s.direction as "inflow" | "outflow",
+    recurrenceRrule: s.recurrence_rrule,
+  }));
+}
+
+function toScheduleDueRows(rows: ScheduleSourceRow[]): ScheduleDueRow[] {
+  return rows.map((s) => ({
+    envelopeId: s.envelopeId,
+    amountCents: toCents(s.amount),
+    nextDueDate: s.nextDueDate,
+    direction: s.direction,
     isActive: true,
   }));
 }
@@ -128,17 +141,28 @@ async function nextInflowDate(
   return todayInflow.rows[0]?.next_due_date ?? null;
 }
 
+/** D8 — payday settled only when a credit matches an active inflow due today. */
 async function hasSettledInflowToday(
   client: PoolClient,
   tenantId: string,
   today: string,
 ): Promise<boolean> {
   const result = await client.query<{ id: string }>(
-    `SELECT id FROM transactions
-     WHERE tenant_id = $1
-       AND booked_date = $2::date
-       AND amount > 0
-       AND settled_at IS NOT NULL
+    `SELECT t.id
+     FROM transactions t
+     WHERE t.tenant_id = $1
+       AND t.booked_date = $2::date
+       AND t.amount > 0
+       AND t.settled_at IS NOT NULL
+       AND EXISTS (
+         SELECT 1
+         FROM scheduled_schedules s
+         WHERE s.tenant_id = t.tenant_id
+           AND s.is_active = TRUE
+           AND s.direction = 'inflow'
+           AND s.next_due_date = $2::date
+           AND s.amount = t.amount
+       )
      LIMIT 1`,
     [tenantId, today],
   );
@@ -206,9 +230,42 @@ function holidayYearsForHorizon(today: string, horizonDays: number): number[] {
   return years;
 }
 
+const SAVEPOINT = "orbit_pipeline_run";
+
+/**
+ * Run the six-step evaluation. A thrown error is recorded as an `error` run on its own
+ * connection (the caller's transaction rolls back, so the row must commit separately),
+ * then rethrown so the transaction still settles once or not at all.
+ */
 export async function runEvaluationPipeline(
   client: PoolClient,
   input: PipelineInput,
+): Promise<PipelineRunSummary> {
+  const progress: { ctx: PipelineRunContext | null } = { ctx: null };
+  try {
+    return await runEvaluationSteps(client, input, progress);
+  } catch (error: unknown) {
+    const ctx = progress.ctx;
+    if (ctx) {
+      try {
+        // Undo this run's partial writes and clear an aborted-transaction state.
+        await client.query(`ROLLBACK TO SAVEPOINT ${SAVEPOINT}`);
+      } catch (rollbackError: unknown) {
+        logger.error("Pipeline savepoint rollback failed", {
+          runId: ctx.runId,
+          error: rollbackError instanceof Error ? rollbackError.message : "unknown",
+        });
+      }
+      await persistFailedPipelineRun(ctx, { transactionId: input.transactionId, error });
+    }
+    throw error;
+  }
+}
+
+async function runEvaluationSteps(
+  client: PoolClient,
+  input: PipelineInput,
+  progress: { ctx: PipelineRunContext | null },
 ): Promise<PipelineRunSummary> {
   const tenantRes = await client.query<{
     timezone: string;
@@ -234,6 +291,8 @@ export async function runEvaluationPipeline(
     cronBatchId: input.cronBatchId,
   };
 
+  await client.query(`SAVEPOINT ${SAVEPOINT}`);
+  progress.ctx = ctx;
   await startPipelineRun(client, {
     runId,
     tenantId: input.tenantId,
@@ -244,26 +303,16 @@ export async function runEvaluationPipeline(
   });
 
   let envelopes = await loadEnvelopes(client, input.tenantId);
-  let scheduleRows = await loadScheduleDueRows(client, input.tenantId);
+  let scheduleSource = await loadScheduleRows(client, input.tenantId);
+  let scheduleRows = toScheduleDueRows(scheduleSource);
 
-  // Step 1 — settle unsettled transactions
+  // Step 1 — settle unsettled transactions. Balances move in memory; one reload after the loop.
   const settleStarted = Date.now();
   let settleCount = 0;
   let idempotencyHit = false;
+  const toSettle: string[] = [];
   if (input.transactionId) {
-    const settled = await settleTransaction(client, {
-      tenantId: input.tenantId,
-      transactionId: input.transactionId,
-      today,
-      envelopes,
-      scheduleRows,
-    });
-    settleCount = settled.settled ? 1 : 0;
-    idempotencyHit = settled.idempotencyHit;
-    if (settled.settled) {
-      envelopes = await loadEnvelopes(client, input.tenantId);
-      scheduleRows = await loadScheduleDueRows(client, input.tenantId);
-    }
+    toSettle.push(input.transactionId);
   } else {
     const unsettled = await client.query<{ id: string }>(
       `SELECT id FROM transactions
@@ -271,21 +320,27 @@ export async function runEvaluationPipeline(
        ORDER BY booked_at ASC`,
       [input.tenantId],
     );
-    for (const row of unsettled.rows) {
-      const settled = await settleTransaction(client, {
-        tenantId: input.tenantId,
-        transactionId: row.id,
-        today,
-        envelopes,
-        scheduleRows,
-      });
-      if (settled.settled) {
-        settleCount += 1;
-        envelopes = await loadEnvelopes(client, input.tenantId);
-        scheduleRows = await loadScheduleDueRows(client, input.tenantId);
-      }
-      if (settled.idempotencyHit) idempotencyHit = true;
+    for (const row of unsettled.rows) toSettle.push(row.id);
+  }
+  for (const transactionId of toSettle) {
+    const settled = await settleTransaction(client, {
+      tenantId: input.tenantId,
+      transactionId,
+      today,
+      envelopes,
+      scheduleRows,
+    });
+    if (settled.settled) {
+      settleCount += 1;
+      envelopes = settled.envelopes;
     }
+    if (settled.idempotencyHit) idempotencyHit = true;
+  }
+  if (settleCount > 0) {
+    // Authoritative reload: settlement may have advanced inflow due dates.
+    envelopes = await loadEnvelopes(client, input.tenantId);
+    scheduleSource = await loadScheduleRows(client, input.tenantId);
+    scheduleRows = toScheduleDueRows(scheduleSource);
   }
   await recordPipelineStep(client, ctx, "settle", {
     centsIn: settleCount,
@@ -311,6 +366,7 @@ export async function runEvaluationPipeline(
         nextPayday: peekNextPayday,
         discCents: discretionary.currentBalanceCents,
       });
+      const sweepStarted = Date.now();
       const sweep = await applyCycleEndSweep(client, {
         tenantId: input.tenantId,
         cycleEndDate: today,
@@ -323,8 +379,29 @@ export async function runEvaluationPipeline(
       if (!discretionary) {
         throw new Error("Missing discretionary envelope");
       }
+      await recordPipelineStep(client, ctx, "sweep", {
+        centsOut: sweep.sweptCents,
+        sweptCents: sweep.sweptCents,
+        sweepIncomplete: sweep.incomplete,
+        durationMs: Date.now() - sweepStarted,
+      });
     }
-    await advanceMidnightDueDates(client, input.tenantId, today, settledInflowToday);
+    const advanceStarted = Date.now();
+    const advanced = await advanceMidnightDueDates(
+      client,
+      input.tenantId,
+      today,
+      settledInflowToday,
+    );
+    if (advanced.outflows + advanced.inflows > 0) {
+      scheduleSource = await loadScheduleRows(client, input.tenantId);
+      scheduleRows = toScheduleDueRows(scheduleSource);
+    }
+    await recordPipelineStep(client, ctx, "schedule_advance", {
+      advancedOutflows: advanced.outflows,
+      advancedInflows: advanced.inflows,
+      durationMs: Date.now() - advanceStarted,
+    });
   }
 
   let nextPayday = await nextInflowDate(client, input.tenantId, today);
@@ -392,18 +469,6 @@ export async function runEvaluationPipeline(
   );
   const c0Cents = toCents(cashRes.rows[0]?.total ?? "0");
 
-  const schedules = await client.query<{
-    amount: string;
-    direction: string;
-    next_due_date: string;
-    recurrence_rrule: string;
-  }>(
-    `SELECT amount::text, direction, next_due_date::text, recurrence_rrule
-     FROM scheduled_schedules
-     WHERE tenant_id = $1 AND is_active = TRUE`,
-    [input.tenantId],
-  );
-
   let holidays: Set<string>;
   try {
     const years = holidayYearsForHorizon(today, 60);
@@ -460,12 +525,7 @@ export async function runEvaluationPipeline(
   }
 
   const { eventsByDate, paydayDates } = expandSchedules({
-    schedules: schedules.rows.map((s) => ({
-      amount: s.amount,
-      direction: s.direction as "inflow" | "outflow",
-      nextDueDate: s.next_due_date,
-      recurrenceRrule: s.recurrence_rrule,
-    })),
+    schedules: scheduleSource,
     today,
     holidays,
   });
@@ -682,8 +742,19 @@ async function settleTransaction(
     envelopes: EnvelopeState[];
     scheduleRows: ScheduleDueRow[];
   },
-): Promise<{ settled: boolean; idempotencyHit: boolean }> {
-  const { tenantId, transactionId, today, envelopes, scheduleRows } = input;
+): Promise<{ settled: boolean; idempotencyHit: boolean; envelopes: EnvelopeState[] }> {
+  const { tenantId, transactionId, today, scheduleRows } = input;
+  // Balances change in memory so the caller reloads once after the loop, not per transaction.
+  const balanceDelta = new Map<string, number>();
+  const addDelta = (envelopeId: string, cents: number): void => {
+    balanceDelta.set(envelopeId, (balanceDelta.get(envelopeId) ?? 0) + cents);
+  };
+  const withDeltas = (): EnvelopeState[] =>
+    input.envelopes.map((e) => ({
+      ...e,
+      currentBalanceCents: e.currentBalanceCents + (balanceDelta.get(e.id) ?? 0),
+    }));
+  const envelopes = input.envelopes;
   const txnRes = await client.query<{
     id: string;
     amount: string;
@@ -697,13 +768,13 @@ async function settleTransaction(
     [transactionId, tenantId],
   );
   const txn = txnRes.rows[0];
-  if (!txn) return { settled: false, idempotencyHit: false };
+  if (!txn) return { settled: false, idempotencyHit: false, envelopes };
   if (txn.settled_at) {
     logger.info("Settlement skipped — already settled", {
       tenantId,
       transactionId,
     });
-    return { settled: false, idempotencyHit: true };
+    return { settled: false, idempotencyHit: true, envelopes };
   }
 
   const amountCents = toCents(txn.amount);
@@ -728,6 +799,7 @@ async function settleTransaction(
     });
 
     for (const a of result.allocations) {
+      addDelta(a.envelopeId, a.amountCents);
       await client.query(
         `UPDATE envelopes SET current_balance = current_balance + $1
          WHERE id = $2 AND tenant_id = $3`,
@@ -751,6 +823,7 @@ async function settleTransaction(
       debit,
       envelope.tierCategory === "discretionary",
     );
+    addDelta(envelope.id, absorbed.envelopeDeltaCents);
     await client.query(
       `UPDATE envelopes SET current_balance = current_balance + $1
        WHERE id = $2 AND tenant_id = $3`,
@@ -759,6 +832,7 @@ async function settleTransaction(
     if (absorbed.deficitAllocationCents > 0) {
       const disc = envelopes.find((e) => e.tierCategory === "discretionary");
       if (!disc) throw new Error("Missing discretionary envelope");
+      addDelta(disc.id, absorbed.discretionaryDeltaCents);
       await client.query(
         `UPDATE envelopes SET current_balance = current_balance + $1
          WHERE id = $2 AND tenant_id = $3`,
@@ -777,9 +851,19 @@ async function settleTransaction(
     [transactionId, tenantId],
   );
 
+  // D8 — only a credit that matches an inflow due today advances the payday.
   if (amountCents > 0 && txn.booked_date === today) {
-    await advanceInflowsDueToday(client, tenantId, today);
+    const matching = await client.query<{ id: string }>(
+      `SELECT id FROM scheduled_schedules
+       WHERE tenant_id = $1 AND is_active = TRUE AND direction = 'inflow'
+         AND next_due_date = $2::date AND amount = $3
+       LIMIT 1`,
+      [tenantId, today, fromCents(amountCents)],
+    );
+    if (matching.rows.length > 0) {
+      await advanceInflowsDueToday(client, tenantId, today);
+    }
   }
 
-  return { settled: true, idempotencyHit: false };
+  return { settled: true, idempotencyHit: false, envelopes: withDeltas() };
 }
