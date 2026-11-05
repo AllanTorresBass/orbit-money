@@ -1,11 +1,26 @@
 import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
-import { HARBOR_DEFAULTS } from "@/lib/dev/harbor";
+import { withTransaction } from "@/lib/db/connection";
+import { HARBOR } from "@/lib/dev/harbor-ids";
 
-/**
- * Auth.js scaffold. Phase-1 UI still uses x-user-id / x-tenant-id headers.
- * Credentials provider maps Harbor seed emails for a later swap.
- */
+declare module "next-auth" {
+  interface Session {
+    userId: string;
+    tenantId: string;
+  }
+
+  interface User {
+    tenantId?: string;
+  }
+}
+
+declare module "@auth/core/jwt" {
+  interface JWT {
+    userId?: string;
+    tenantId?: string;
+  }
+}
+
 export const { handlers, auth, signIn, signOut } = NextAuth({
   providers: [
     Credentials({
@@ -13,18 +28,58 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         email: { label: "Email", type: "email" },
       },
       async authorize(credentials) {
-        const email = typeof credentials.email === "string" ? credentials.email : "";
-        const map: Record<string, { id: string; name: string }> = {
-          "alex@harbor.test": { id: HARBOR_DEFAULTS.alexId, name: "Alex" },
-          "blair@harbor.test": { id: HARBOR_DEFAULTS.blairId, name: "Blair" },
-          "casey@harbor.test": { id: HARBOR_DEFAULTS.caseyId, name: "Casey" },
-        };
-        const user = map[email.toLowerCase()];
-        if (!user) return null;
-        return { id: user.id, email, name: user.name };
+        const email = typeof credentials.email === "string" ? credentials.email.trim().toLowerCase() : "";
+        if (!email) return null;
+
+        return withTransaction(null, async (client) => {
+          await client.query("SELECT set_config('app.bypass_rls', 'on', true)");
+          const user = await client.query<{ id: string; name: string; email: string }>(
+            `SELECT id, name, email FROM users WHERE email = $1`,
+            [email],
+          );
+          const row = user.rows[0];
+          if (!row) return null;
+
+          const membership = await client.query<{ tenant_id: string }>(
+            `SELECT tenant_id FROM tenant_memberships
+             WHERE user_id = $1 AND status = 'active'
+             ORDER BY created_at ASC
+             LIMIT 1`,
+            [row.id],
+          );
+          const tenantId = membership.rows[0]?.tenant_id ?? HARBOR.tenantId;
+
+          return {
+            id: row.id,
+            email: row.email,
+            name: row.name,
+            tenantId,
+          };
+        });
       },
     }),
   ],
+  callbacks: {
+    async jwt({ token, user }) {
+      if (user) {
+        token.userId = user.id;
+        token.tenantId = user.tenantId ?? HARBOR.tenantId;
+      }
+      return token;
+    },
+    async session({ session, token }) {
+      session.userId = token.userId ?? "";
+      session.tenantId = token.tenantId ?? HARBOR.tenantId;
+      if (session.user) {
+        session.user.id = token.userId ?? "";
+      }
+      return session;
+    },
+  },
+  pages: {
+    signIn: "/signin",
+  },
   session: { strategy: "jwt" },
+  trustHost: true,
   secret: process.env.AUTH_SECRET ?? "orbit-dev-secret-change-me",
 });

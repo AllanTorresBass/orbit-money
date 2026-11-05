@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { canManagePeople, type MembershipRole } from "@/lib/auth/session";
+import { canManagePeople, type MembershipRole } from "@/lib/auth/permissions";
 import { withTransaction } from "@/lib/db/connection";
 import { BaseService } from "@/lib/services/base/BaseService";
 

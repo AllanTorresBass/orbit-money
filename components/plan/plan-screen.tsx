@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { AddEnvelopeSheet } from "@/components/plan/add-envelope-sheet";
+import { EditEnvelopeSheet } from "@/components/plan/edit-envelope-sheet";
 import { useMe, usePlan } from "@/hooks/use-allowance";
 import { cn, formatMoney } from "@/lib/utils";
 
@@ -9,13 +10,24 @@ export interface PlanScreenProps {
   className?: string;
 }
 
+type EditableEnvelope = {
+  id: string;
+  name: string;
+  tierCategory: "fixed" | "sinking";
+  balanceCents: number;
+  targetCapCents: number | null;
+  monthlyInstallmentCents: number | null;
+};
+
 export function PlanScreen({ className }: PlanScreenProps) {
   const plan = usePlan();
   const me = useMe();
-  const [sheet, setSheet] = useState<"fixed" | "sinking" | null>(null);
+  const [addKind, setAddKind] = useState<"fixed" | "sinking" | null>(null);
+  const [editing, setEditing] = useState<EditableEnvelope | null>(null);
 
   const canConfigure = me.data?.role === "owner" || me.data?.role === "admin";
   const canSuggest = me.data?.role === "member";
+  const canOpenRow = canConfigure || canSuggest;
   const showAdd = canConfigure || canSuggest;
 
   if (plan.isLoading) {
@@ -48,12 +60,25 @@ export function PlanScreen({ className }: PlanScreenProps) {
         <h2 className="text-[15px] font-medium text-[var(--orbit-ink)]">Bills</h2>
         <ul className="mt-2">
           {bills.map((b) => (
-            <li
-              key={b.id}
-              className="flex justify-between border-b border-[var(--orbit-line)] py-3 text-[17px]"
-            >
-              <span>{b.name}</span>
-              <span className="tabular-nums">{formatMoney(b.balanceCents)}</span>
+            <li key={b.id}>
+              <button
+                type="button"
+                disabled={!canOpenRow}
+                onClick={() =>
+                  setEditing({
+                    id: b.id,
+                    name: b.name,
+                    tierCategory: "fixed",
+                    balanceCents: b.balanceCents,
+                    targetCapCents: b.targetCapCents,
+                    monthlyInstallmentCents: b.monthlyInstallmentCents,
+                  })
+                }
+                className="flex w-full justify-between border-b border-[var(--orbit-line)] py-3 text-left text-[17px] disabled:cursor-default"
+              >
+                <span>{b.name}</span>
+                <span className="tabular-nums">{formatMoney(b.balanceCents)}</span>
+              </button>
             </li>
           ))}
         </ul>
@@ -61,7 +86,7 @@ export function PlanScreen({ className }: PlanScreenProps) {
           <button
             type="button"
             className="mt-3 text-[15px] text-[var(--orbit-ink)]"
-            onClick={() => setSheet("fixed")}
+            onClick={() => setAddKind("fixed")}
           >
             {canSuggest ? "Suggest a bill" : "Add a bill"}
           </button>
@@ -72,15 +97,28 @@ export function PlanScreen({ className }: PlanScreenProps) {
         <h2 className="text-[15px] font-medium text-[var(--orbit-ink)]">Goals</h2>
         <ul className="mt-2">
           {goals.map((g) => (
-            <li
-              key={g.id}
-              className="flex justify-between border-b border-[var(--orbit-line)] py-3 text-[17px]"
-            >
-              <span>{g.name}</span>
-              <span className="tabular-nums text-[var(--orbit-secondary)]">
-                {formatMoney(g.balanceCents)}
-                {g.targetCapCents !== null ? ` / ${formatMoney(g.targetCapCents)}` : ""}
-              </span>
+            <li key={g.id}>
+              <button
+                type="button"
+                disabled={!canOpenRow}
+                onClick={() =>
+                  setEditing({
+                    id: g.id,
+                    name: g.name,
+                    tierCategory: "sinking",
+                    balanceCents: g.balanceCents,
+                    targetCapCents: g.targetCapCents,
+                    monthlyInstallmentCents: g.monthlyInstallmentCents,
+                  })
+                }
+                className="flex w-full justify-between border-b border-[var(--orbit-line)] py-3 text-left text-[17px] disabled:cursor-default"
+              >
+                <span>{g.name}</span>
+                <span className="tabular-nums text-[var(--orbit-secondary)]">
+                  {formatMoney(g.balanceCents)}
+                  {g.targetCapCents !== null ? ` / ${formatMoney(g.targetCapCents)}` : ""}
+                </span>
+              </button>
             </li>
           ))}
         </ul>
@@ -88,7 +126,7 @@ export function PlanScreen({ className }: PlanScreenProps) {
           <button
             type="button"
             className="mt-3 text-[15px] text-[var(--orbit-ink)]"
-            onClick={() => setSheet("sinking")}
+            onClick={() => setAddKind("sinking")}
           >
             {canSuggest ? "Suggest a goal" : "Add a goal"}
           </button>
@@ -121,12 +159,21 @@ export function PlanScreen({ className }: PlanScreenProps) {
         </section>
       ) : null}
 
-      {sheet ? (
+      {addKind ? (
         <AddEnvelopeSheet
           open
-          kind={sheet}
+          kind={addKind}
           mode={canSuggest ? "suggest" : "save"}
-          onClose={() => setSheet(null)}
+          onClose={() => setAddKind(null)}
+        />
+      ) : null}
+
+      {editing ? (
+        <EditEnvelopeSheet
+          open
+          envelope={editing}
+          mode={canSuggest ? "suggest" : "save"}
+          onClose={() => setEditing(null)}
         />
       ) : null}
     </div>

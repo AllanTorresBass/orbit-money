@@ -1,11 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { canSpend } from "@/lib/auth/session";
+import { canSpend, type MembershipRole } from "@/lib/auth/permissions";
 import { withTransaction } from "@/lib/db/connection";
 import { bookedDate } from "@/lib/calendar/dates";
 import { fromCents } from "@/lib/money/numeric";
 import { runEvaluationPipeline } from "@/lib/pipeline/run-evaluation";
 import { BaseService } from "@/lib/services/base/BaseService";
-import type { MembershipRole } from "@/lib/auth/session";
 
 export class TransactionService extends BaseService {
   constructor() {
@@ -19,6 +18,8 @@ export class TransactionService extends BaseService {
     amountCents: number;
     idempotencyKey?: string;
     memo?: string;
+    /** Test/support override for the tenant-local booked date. */
+    asOfDate?: string;
   }): Promise<{ id: string; sTodayCents: number | null }> {
     if (!canSpend(input.role)) {
       throw new Error("Forbidden");
@@ -53,7 +54,7 @@ export class TransactionService extends BaseService {
       );
       const timezone = tenant.rows[0]?.timezone ?? "UTC";
       const now = new Date();
-      const localDate = bookedDate(now, timezone);
+      const localDate = input.asOfDate ?? bookedDate(now, timezone);
 
       const account = await client.query<{ id: string }>(
         `SELECT id FROM accounts WHERE tenant_id = $1 ORDER BY is_everyday DESC LIMIT 1`,

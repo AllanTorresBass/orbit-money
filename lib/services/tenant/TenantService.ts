@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { withTransaction } from "@/lib/db/connection";
 import { fromCents } from "@/lib/money/numeric";
-import { BaseService } from "@/lib/services/base/BaseService";
 import { runEvaluationPipeline } from "@/lib/pipeline/run-evaluation";
+import { BaseService } from "@/lib/services/base/BaseService";
 
 export class TenantService extends BaseService {
   constructor() {

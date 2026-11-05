@@ -1,6 +1,5 @@
 import type { PoolClient } from "pg";
-import { canConfigure } from "@/lib/auth/session";
-import type { MembershipRole } from "@/lib/auth/session";
+import { canConfigure, type MembershipRole } from "@/lib/auth/permissions";
 import { withTransaction } from "@/lib/db/connection";
 import { fromCents, toCents } from "@/lib/money/numeric";
 import { runEvaluationPipeline } from "@/lib/pipeline/run-evaluation";
@@ -188,6 +187,100 @@ export class PlanService extends BaseService {
         createdAt: row.created_at,
       }));
     });
+  }
+
+  async updateEnvelope(input: {
+    tenantId: string;
+    userId: string;
+    role: MembershipRole;
+    envelopeId: string;
+    payload: EnvelopePayload;
+  }): Promise<{ id: string } | { proposalId: string }> {
+    if (canConfigure(input.role)) {
+      return withTransaction(
+        { tenantId: input.tenantId, userId: input.userId },
+        async (client) => {
+          const existing = await client.query<{ id: string; tier_category: string }>(
+            `SELECT id, tier_category FROM envelopes
+             WHERE id = $1 AND tenant_id = $2 AND tier_category IN ('fixed', 'sinking')`,
+            [input.envelopeId, input.tenantId],
+          );
+          if (!existing.rows[0]) {
+            throw new Error("Not found");
+          }
+
+          await client.query(
+            `UPDATE envelopes
+             SET name = $1,
+                 target_cap = $2,
+                 monthly_installment = $3
+             WHERE id = $4 AND tenant_id = $5`,
+            [
+              input.payload.name,
+              input.payload.targetCapCents === null
+                ? null
+                : fromCents(input.payload.targetCapCents),
+              input.payload.monthlyInstallmentCents === null
+                ? null
+                : fromCents(input.payload.monthlyInstallmentCents),
+              input.envelopeId,
+              input.tenantId,
+            ],
+          );
+
+          if (
+            existing.rows[0].tier_category === "fixed" &&
+            input.payload.dueDate &&
+            (input.payload.targetCapCents ?? input.payload.amountEachPaydayCents) !== null
+          ) {
+            const amount =
+              input.payload.amountEachPaydayCents ?? input.payload.targetCapCents ?? 0;
+            await client.query(
+              `UPDATE scheduled_schedules
+               SET title = $1, amount = $2, next_due_date = $3::date
+               WHERE tenant_id = $4 AND envelope_id = $5 AND direction = 'outflow'`,
+              [
+                input.payload.name,
+                fromCents(amount),
+                input.payload.dueDate,
+                input.tenantId,
+                input.envelopeId,
+              ],
+            );
+          }
+
+          await runEvaluationPipeline(client, {
+            tenantId: input.tenantId,
+            userId: input.userId,
+            trigger: "sync",
+          });
+          this.logInfo("Envelope updated", { id: input.envelopeId });
+          return { id: input.envelopeId };
+        },
+      );
+    }
+
+    if (input.role !== "member") {
+      throw new Error("Forbidden");
+    }
+
+    return withTransaction(
+      { tenantId: input.tenantId, userId: input.userId },
+      async (client) => {
+        const result = await client.query<{ id: string }>(
+          `INSERT INTO envelope_proposals (tenant_id, envelope_id, proposed_by, payload, status)
+           VALUES ($1, $2, $3, $4::jsonb, 'pending')
+           RETURNING id`,
+          [
+            input.tenantId,
+            input.envelopeId,
+            input.userId,
+            JSON.stringify(input.payload),
+          ],
+        );
+        return { proposalId: result.rows[0].id };
+      },
+    );
   }
 
   async resolveProposal(input: {

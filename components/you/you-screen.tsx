@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { signOut } from "next-auth/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -240,9 +241,21 @@ export function YouScreen({ className }: YouScreenProps) {
       <section className="mt-12 border-t border-[var(--orbit-line)] pt-6">
         <p className="text-[13px] text-[var(--orbit-secondary)]">Try as</p>
         <ActorSwitcher className="mt-2" />
-        <Link href="/create" className="mt-6 block text-[15px] text-[var(--orbit-ink)]">
+        <Link href="/signin" className="mt-6 block text-[15px] text-[var(--orbit-ink)]">
+          Sign in with email
+        </Link>
+        <Link href="/create" className="mt-3 block text-[15px] text-[var(--orbit-ink)]">
           Create another space
         </Link>
+        <button
+          type="button"
+          className="mt-3 block text-[15px] text-[var(--orbit-secondary)]"
+          onClick={() => {
+            void signOut({ callbackUrl: "/signin" });
+          }}
+        >
+          Sign out
+        </button>
       </section>
     </div>
   );

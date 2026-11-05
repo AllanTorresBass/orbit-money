@@ -61,8 +61,20 @@ export const api = {
     }>("/api/v1/forecast"),
   getPlan: () =>
     apiFetch<{
-      bills: Array<{ id: string; name: string; balanceCents: number }>;
-      goals: Array<{ id: string; name: string; balanceCents: number; targetCapCents: number | null }>;
+      bills: Array<{
+        id: string;
+        name: string;
+        balanceCents: number;
+        targetCapCents: number | null;
+        monthlyInstallmentCents: number | null;
+      }>;
+      goals: Array<{
+        id: string;
+        name: string;
+        balanceCents: number;
+        targetCapCents: number | null;
+        monthlyInstallmentCents: number | null;
+      }>;
       spending: { id: string; name: string; balanceCents: number } | null;
       recentPurchases: Array<{ id: string; amountCents: number; memo: string | null }>;
     }>("/api/v1/plan"),
@@ -104,6 +116,21 @@ export const api = {
   }) =>
     apiFetch<{ id?: string; proposalId?: string }>("/api/v1/envelopes", {
       method: "POST",
+      body: JSON.stringify(body),
+    }),
+  updateEnvelope: (
+    id: string,
+    body: {
+      name: string;
+      tierCategory: "fixed" | "sinking";
+      targetCapCents: number | null;
+      monthlyInstallmentCents: number | null;
+      dueDate?: string | null;
+      amountEachPaydayCents?: number | null;
+    },
+  ) =>
+    apiFetch<{ id?: string; proposalId?: string }>(`/api/v1/envelopes/${id}`, {
+      method: "PATCH",
       body: JSON.stringify(body),
     }),
   getProposals: () =>
