@@ -1,70 +1,48 @@
 "use client";
 
-import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { toast } from "sonner";
 import { AddEnvelopeSheet } from "@/components/plan/add-envelope-sheet";
 import { EditEnvelopeSheet } from "@/components/plan/edit-envelope-sheet";
+import { SpendingExplainSheet } from "@/components/plan/spending-explain-sheet";
+import { TenantPicker } from "@/components/shell/tenant-picker";
 import { useMe, usePlan } from "@/hooks/use-allowance";
-import { api } from "@/lib/api/client";
-import { cn, formatMoney } from "@/lib/utils";
+import { useReorderEnvelopes } from "@/hooks/use-plan-mutations";
+import { isApiError } from "@/lib/api/api-error";
+import { cn, formatMoney, formatShortDate } from "@/lib/utils";
+import { fetchErrorMessage } from "@/lib/utils/handle-fetch-error";
+import type { EditableEnvelope, EditableTier, PlanEnvelopeDto } from "@/types/plan/plan.types";
 
 export interface PlanScreenProps {
   className?: string;
 }
 
-type EditableEnvelope = {
-  id: string;
-  name: string;
-  tierCategory: "fixed" | "sinking";
-  balanceCents: number;
-  targetCapCents: number | null;
-  monthlyInstallmentCents: number | null;
-};
-
-type PlanRow = {
-  id: string;
-  name: string;
-  balanceCents: number;
-  targetCapCents: number | null;
-  monthlyInstallmentCents: number | null;
-};
-
 export function PlanScreen({ className }: PlanScreenProps) {
   const plan = usePlan();
   const me = useMe();
-  const queryClient = useQueryClient();
-  const [addKind, setAddKind] = useState<"fixed" | "sinking" | null>(null);
+  const reorder = useReorderEnvelopes();
+  const [addKind, setAddKind] = useState<EditableTier | null>(null);
   const [editing, setEditing] = useState<EditableEnvelope | null>(null);
-  const [reordering, setReordering] = useState(false);
+  const [explainOpen, setExplainOpen] = useState(false);
+  const reordering = reorder.isPending;
 
   const canConfigure = me.data?.role === "owner" || me.data?.role === "admin";
   const canSuggest = me.data?.role === "member";
   const canOpenRow = canConfigure || canSuggest;
   const showAdd = canConfigure || canSuggest;
 
-  async function moveRow(
-    tierCategory: "fixed" | "sinking",
-    rows: PlanRow[],
+  function moveRow(
+    tierCategory: EditableTier,
+    rows: PlanEnvelopeDto[],
     index: number,
     direction: -1 | 1,
-  ): Promise<void> {
+  ): void {
     const next = index + direction;
     if (next < 0 || next >= rows.length || reordering) return;
     const orderedIds = rows.map((r) => r.id);
     const tmp = orderedIds[index];
     orderedIds[index] = orderedIds[next];
     orderedIds[next] = tmp;
-    setReordering(true);
-    try {
-      await api.reorderEnvelopes({ tierCategory, orderedIds });
-      toast.success("Priority updated");
-      await queryClient.invalidateQueries();
-    } catch (error: unknown) {
-      toast.error(error instanceof Error ? error.message : "Could not reorder");
-    } finally {
-      setReordering(false);
-    }
+    reorder.mutate({ tierCategory, orderedIds });
   }
 
   if (plan.isLoading) {
@@ -76,22 +54,39 @@ export function PlanScreen({ className }: PlanScreenProps) {
     );
   }
 
+  if (isApiError(plan.error) && plan.error.code === "tenant_selection_required") {
+    return <TenantPicker tenants={plan.error.tenants} className={className} />;
+  }
+
   if (plan.isError || !plan.data) {
     return (
       <div className={cn("px-6 pt-10", className)}>
-        <p className="text-[var(--orbit-short)]">Could not load plan.</p>
+        <p className="text-[var(--orbit-short)]">{fetchErrorMessage(plan.error, "plan")}</p>
       </div>
     );
   }
 
-  const { bills, goals, spending, recentPurchases } = plan.data;
+  const { bills, goals, spending, recentPurchases, payday, sweepIncomplete } = plan.data;
 
   return (
     <div className={cn("mx-auto min-h-screen max-w-md px-6 pb-28 pt-8", className)}>
       <h1 className="font-[family-name:var(--font-orbit-serif)] text-[28px] text-[var(--orbit-ink)]">
         Plan
       </h1>
-      <p className="mt-1 text-[15px] text-[var(--orbit-secondary)]">Where payday goes.</p>
+      <p className="mt-1 text-[15px] text-[var(--orbit-secondary)]">
+        {payday
+          ? `Payday ${formatShortDate(payday.date)} · ${formatMoney(payday.amountCents)}`
+          : "Where payday goes."}
+      </p>
+
+      {sweepIncomplete ? (
+        <p
+          role="status"
+          className="mt-6 border-l-2 border-[var(--orbit-low)] pl-3 text-[15px] text-[var(--orbit-ink)]"
+        >
+          Some of what was left last payday could not move to your Goals yet.
+        </p>
+      ) : null}
 
       <section className="mt-10">
         <h2 className="text-[15px] font-medium text-[var(--orbit-ink)]">Bills</h2>
@@ -127,7 +122,7 @@ export function PlanScreen({ className }: PlanScreenProps) {
                     disabled={reordering || index === 0}
                     className="px-1 text-[15px] text-[var(--orbit-secondary)] disabled:opacity-30"
                     onClick={() => {
-                      void moveRow("fixed", bills, index, -1);
+                      moveRow("fixed", bills, index, -1);
                     }}
                   >
                     ↑
@@ -138,7 +133,7 @@ export function PlanScreen({ className }: PlanScreenProps) {
                     disabled={reordering || index === bills.length - 1}
                     className="px-1 text-[15px] text-[var(--orbit-secondary)] disabled:opacity-30"
                     onClick={() => {
-                      void moveRow("fixed", bills, index, 1);
+                      moveRow("fixed", bills, index, 1);
                     }}
                   >
                     ↓
@@ -196,7 +191,7 @@ export function PlanScreen({ className }: PlanScreenProps) {
                     disabled={reordering || index === 0}
                     className="px-1 text-[15px] text-[var(--orbit-secondary)] disabled:opacity-30"
                     onClick={() => {
-                      void moveRow("sinking", goals, index, -1);
+                      moveRow("sinking", goals, index, -1);
                     }}
                   >
                     ↑
@@ -207,7 +202,7 @@ export function PlanScreen({ className }: PlanScreenProps) {
                     disabled={reordering || index === goals.length - 1}
                     className="px-1 text-[15px] text-[var(--orbit-secondary)] disabled:opacity-30"
                     onClick={() => {
-                      void moveRow("sinking", goals, index, 1);
+                      moveRow("sinking", goals, index, 1);
                     }}
                   >
                     ↓
@@ -231,10 +226,15 @@ export function PlanScreen({ className }: PlanScreenProps) {
       {spending ? (
         <section className="mt-8">
           <h2 className="text-[15px] font-medium text-[var(--orbit-ink)]">Spending</h2>
-          <p className="mt-2 flex justify-between py-3 text-[17px]">
+          <button
+            type="button"
+            onClick={() => setExplainOpen(true)}
+            aria-label="How Spending works"
+            className="mt-2 flex w-full justify-between py-3 text-left text-[17px]"
+          >
             <span>{spending.name}</span>
             <span className="tabular-nums">{formatMoney(spending.balanceCents)}</span>
-          </p>
+          </button>
           <h3 className="mt-4 text-[13px] text-[var(--orbit-secondary)]">This payday</h3>
           <ul className="mt-1">
             {recentPurchases.length === 0 ? (
@@ -254,6 +254,14 @@ export function PlanScreen({ className }: PlanScreenProps) {
         </section>
       ) : null}
 
+      {spending ? (
+        <SpendingExplainSheet
+          open={explainOpen}
+          onClose={() => setExplainOpen(false)}
+          balanceCents={spending.balanceCents}
+        />
+      ) : null}
+
       {addKind ? (
         <AddEnvelopeSheet
           open
@@ -265,6 +273,7 @@ export function PlanScreen({ className }: PlanScreenProps) {
 
       {editing ? (
         <EditEnvelopeSheet
+          key={editing.id}
           open
           envelope={editing}
           mode={canSuggest ? "suggest" : "save"}

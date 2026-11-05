@@ -8,6 +8,10 @@ function emit(level: LogLevel, message: string, meta?: Record<string, unknown>):
     ...(meta ?? {}),
   };
   const line = JSON.stringify(payload);
+  // Browser bundles have no process streams. Client logs are dropped, not printed.
+  if (typeof process === "undefined" || !process.stdout || !process.stderr) {
+    return;
+  }
   if (level === "error") {
     process.stderr.write(`${line}\n`);
     return;

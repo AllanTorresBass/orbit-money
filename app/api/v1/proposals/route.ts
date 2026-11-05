@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { resolveSession } from "@/lib/auth/session";
+import { TenantSelectionRequiredError, tenantSelectionResponse } from "@/lib/auth/tenant-selection";
 import { logger } from "@/lib/logger";
 import { planService } from "@/lib/services";
 
@@ -16,6 +17,9 @@ export async function GET(): Promise<NextResponse> {
     );
     return NextResponse.json({ proposals });
   } catch (error: unknown) {
+    if (error instanceof TenantSelectionRequiredError) {
+      return tenantSelectionResponse(error);
+    }
     const message = error instanceof Error ? error.message : "unknown";
     if (message === "Forbidden") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });

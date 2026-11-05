@@ -4,57 +4,19 @@ import { withTransaction } from "@/lib/db/connection";
 import { fromCents, toCents } from "@/lib/money/numeric";
 import { runEvaluationPipeline } from "@/lib/pipeline/run-evaluation";
 import { BaseService } from "@/lib/services/base/BaseService";
-
-export interface PlanEnvelopeDto {
-  id: string;
-  name: string;
-  tierCategory: "fixed" | "sinking" | "discretionary";
-  priorityOrder: number;
-  balanceCents: number;
-  targetCapCents: number | null;
-  monthlyInstallmentCents: number | null;
-}
-
-export interface PlanPurchaseDto {
-  id: string;
-  amountCents: number;
-  memo: string | null;
-  bookedAt: string;
-}
-
-export interface EnvelopePayload {
-  name: string;
-  tierCategory: "fixed" | "sinking";
-  targetCapCents: number | null;
-  monthlyInstallmentCents: number | null;
-  dueDate?: string | null;
-  amountEachPaydayCents?: number | null;
-}
-
-export interface ProposalDto {
-  id: string;
-  envelopeId: string | null;
-  proposedBy: string;
-  proposedByName: string;
-  payload: EnvelopePayload;
-  status: string;
-  createdAt: string;
-}
+import type {
+  EnvelopePayload,
+  PlanDto,
+  PlanPaydayDto,
+  ProposalDto,
+} from "@/types/plan/plan.types";
 
 export class PlanService extends BaseService {
   constructor() {
     super("PlanService");
   }
 
-  async getPlan(
-    tenantId: string,
-    userId: string,
-  ): Promise<{
-    bills: PlanEnvelopeDto[];
-    goals: PlanEnvelopeDto[];
-    spending: PlanEnvelopeDto | null;
-    recentPurchases: PlanPurchaseDto[];
-  }> {
+  async getPlan(tenantId: string, userId: string): Promise<PlanDto> {
     return withTransaction({ tenantId, userId }, async (client) => {
       const envelopes = await client.query<{
         id: string;
@@ -101,7 +63,30 @@ export class PlanService extends BaseService {
           )
         : { rows: [] };
 
+      const payday = await client.query<{ amount: string; next_due_date: string }>(
+        `SELECT amount::text, next_due_date::text
+         FROM scheduled_schedules
+         WHERE tenant_id = $1 AND direction = 'inflow' AND is_active = TRUE
+         ORDER BY next_due_date ASC
+         LIMIT 1`,
+        [tenantId],
+      );
+      const paydayRow = payday.rows[0];
+      const paydayDto: PlanPaydayDto | null = paydayRow
+        ? { amountCents: toCents(paydayRow.amount), date: paydayRow.next_due_date }
+        : null;
+
+      const sweep = await client.query<{ incomplete: boolean }>(
+        `SELECT incomplete FROM cycle_sweeps
+         WHERE tenant_id = $1
+         ORDER BY cycle_end_date DESC
+         LIMIT 1`,
+        [tenantId],
+      );
+
       return {
+        payday: paydayDto,
+        sweepIncomplete: sweep.rows[0]?.incomplete ?? false,
         bills: mapped.filter((e) => e.tierCategory === "fixed"),
         goals: mapped.filter((e) => e.tierCategory === "sinking" && e.name !== "Emergency"),
         spending,

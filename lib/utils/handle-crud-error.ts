@@ -1,0 +1,41 @@
+import { toast } from "sonner";
+import { isApiError } from "@/lib/api/api-error";
+import { logger } from "@/lib/logger";
+
+export interface HandleCrudErrorOptions {
+  /** What failed, in plain words: "save the bill", "invite them". */
+  action: string;
+}
+
+/** Message safe to show a person for a failed create, update, or delete. */
+export function crudErrorMessage(error: unknown, action: string): string {
+  if (isApiError(error)) {
+    if (error.status === 403) {
+      return `You can't ${action}.`;
+    }
+    if (error.code === "tenant_selection_required") {
+      return "Choose a household to continue.";
+    }
+    // Server messages are already plain ("Already on this team").
+    if (error.status >= 400 && error.status < 500 && error.message) {
+      return error.message;
+    }
+  }
+  return `Could not ${action}.`;
+}
+
+/** Log and toast a failed write. Returns the message. */
+export function handleCrudError(error: unknown, options: HandleCrudErrorOptions): string {
+  const message = crudErrorMessage(error, options.action);
+  logger.error("Mutation failed", {
+    action: options.action,
+    error: error instanceof Error ? error.message : "unknown",
+  });
+  toast.error(message);
+  return message;
+}
+
+/** Toast a successful write. */
+export function notifyCrudSuccess(message: string): void {
+  toast.success(message);
+}

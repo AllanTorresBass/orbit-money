@@ -1,6 +1,12 @@
 "use client";
 
+import { useState } from "react";
+import { AheadSkeleton } from "@/components/ahead/ahead-skeleton";
+import { DayDetailSheet } from "@/components/ahead/day-detail-sheet";
+import { TenantPicker } from "@/components/shell/tenant-picker";
 import { useForecast } from "@/hooks/use-allowance";
+import { isApiError } from "@/lib/api/api-error";
+import { fetchErrorMessage } from "@/lib/utils/handle-fetch-error";
 import { cn, formatMoney, formatShortDate } from "@/lib/utils";
 
 export interface AheadScreenProps {
@@ -9,20 +15,28 @@ export interface AheadScreenProps {
 
 export function AheadScreen({ className }: AheadScreenProps) {
   const forecast = useForecast();
+  const [openDate, setOpenDate] = useState<string | null>(null);
 
   if (forecast.isLoading) {
-    return (
-      <div className={cn("mx-auto max-w-md animate-pulse px-6 pt-8", className)}>
-        <div className="h-8 w-32 rounded bg-[var(--orbit-line)]" />
-        <div className="mt-10 h-40 w-full rounded bg-[var(--orbit-line)]" />
-      </div>
-    );
+    return <AheadSkeleton className={className} />;
+  }
+
+  if (isApiError(forecast.error) && forecast.error.code === "tenant_selection_required") {
+    return <TenantPicker tenants={forecast.error.tenants} className={className} />;
   }
 
   if (forecast.isError || !forecast.data) {
     return (
       <div className={cn("px-6 pt-10", className)}>
-        <p className="text-[var(--orbit-short)]">Could not load ahead.</p>
+        <p className="text-[var(--orbit-short)]">{fetchErrorMessage(forecast.error, "ahead")}</p>
+      </div>
+    );
+  }
+
+  if (forecast.data.days.length === 0) {
+    return (
+      <div className={cn("mx-auto max-w-md px-6 pt-10", className)}>
+        <p className="text-[var(--orbit-secondary)]">Nothing to show yet.</p>
       </div>
     );
   }
@@ -64,23 +78,30 @@ export function AheadScreen({ className }: AheadScreenProps) {
           .filter((d) => d.status !== "ok" || d.dayOffset === 0 || d.dayOffset % 7 === 0)
           .slice(0, 12)
           .map((d) => (
-            <li
-              key={d.dayOffset}
-              className="flex items-baseline justify-between border-b border-[var(--orbit-line)] py-2 text-[15px]"
-            >
-              <span className="text-[var(--orbit-secondary)]">{formatShortDate(d.forecastDate)}</span>
-              <span
-                className={cn(
-                  "tabular-nums text-[var(--orbit-ink)]",
-                  d.status === "breach" && "text-[var(--orbit-short)]",
-                  d.status === "warning" && "text-[var(--orbit-low)]",
-                )}
+            <li key={d.dayOffset} className="border-b border-[var(--orbit-line)]">
+              <button
+                type="button"
+                onClick={() => setOpenDate(d.forecastDate)}
+                className="flex w-full items-baseline justify-between py-3 text-left text-[15px]"
               >
-                {formatMoney(d.balanceCents)}
-              </span>
+                <span className="text-[var(--orbit-secondary)]">
+                  {formatShortDate(d.forecastDate)}
+                </span>
+                <span
+                  className={cn(
+                    "tabular-nums text-[var(--orbit-ink)]",
+                    d.status === "breach" && "text-[var(--orbit-short)]",
+                    d.status === "warning" && "text-[var(--orbit-low)]",
+                  )}
+                >
+                  {formatMoney(d.balanceCents)}
+                </span>
+              </button>
             </li>
           ))}
       </ul>
+
+      <DayDetailSheet date={openDate} onClose={() => setOpenDate(null)} />
     </div>
   );
 }

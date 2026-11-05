@@ -1,9 +1,58 @@
+import { ApiError } from "@/lib/api/api-error";
 import { isClientDevHeaderAuthEnabled } from "@/lib/auth/dev-header-auth";
 import { getActorUserId, getTenantId } from "@/lib/dev/actor-store";
+import type { AccountDto, AccountListResponse, CreateAccountBody } from "@/types/account/account.types";
+import type { AllowanceDto } from "@/types/allowance/allowance.types";
+import type {
+  ForecastDayDetailDto,
+  ForecastListResponse,
+} from "@/types/forecast/forecast.types";
+import type { MeDto, TenantChoice } from "@/types/me/me.types";
+import type {
+  AcceptInviteBody,
+  AssignableRole,
+  InviteBody,
+  InviteResult,
+  PeopleListResponse,
+} from "@/types/people/people.types";
+import type {
+  EnvelopeMutationResult,
+  EnvelopePayload,
+  PlanDto,
+  ProposalDecision,
+  ProposalListResponse,
+  ReorderEnvelopesBody,
+} from "@/types/plan/plan.types";
+import type { CreateTenantBody, CreateTenantResult } from "@/types/tenant/tenant.types";
 
 export interface ApiClientOptions {
   userId?: string;
   tenantId?: string;
+}
+
+interface ErrorBody {
+  error?: unknown;
+  code?: unknown;
+  tenants?: unknown;
+}
+
+function isTenantChoice(value: unknown): value is TenantChoice {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as Record<string, unknown>).tenantId === "string" &&
+    typeof (value as Record<string, unknown>).tenantName === "string"
+  );
+}
+
+async function toApiError(response: Response): Promise<ApiError> {
+  const body = (await response.json().catch(() => ({ error: "Request failed" }))) as ErrorBody;
+  const message = typeof body.error === "string" ? body.error : "Request failed";
+  return new ApiError(message, {
+    status: response.status,
+    code: typeof body.code === "string" ? body.code : null,
+    tenants: Array.isArray(body.tenants) ? body.tenants.filter(isTenantChoice) : [],
+  });
 }
 
 async function apiFetch<T>(path: string, init?: RequestInit, options?: ApiClientOptions): Promise<T> {
@@ -24,162 +73,85 @@ async function apiFetch<T>(path: string, init?: RequestInit, options?: ApiClient
     credentials: "same-origin",
   });
   if (!response.ok) {
-    const body: unknown = await response.json().catch(() => ({ error: "Request failed" }));
-    const message =
-      typeof body === "object" && body !== null && "error" in body
-        ? String((body as { error: unknown }).error)
-        : "Request failed";
-    throw new Error(message);
+    throw await toApiError(response);
   }
   return response.json() as Promise<T>;
 }
 
 export const api = {
-  getMe: () =>
-    apiFetch<{
-      userId: string;
-      tenantId: string;
-      role: string;
-      name: string;
-      tenantName: string;
-      canSpend: boolean;
-    }>("/api/v1/me"),
-  getAllowance: () =>
-    apiFetch<{
-      sTodayCents: number;
-      sDailyCents: number;
-      nP: number;
-      nextPayday: string | null;
-      mitigated: boolean;
-      tenantName: string;
-      breachDate: string | null;
-      warningDate: string | null;
-    }>("/api/v1/allowance"),
-  getForecast: () =>
-    apiFetch<{
-      days: Array<{
-        dayOffset: number;
-        forecastDate: string;
-        balanceCents: number;
-        status: string;
-        assumedBurnCents: number;
-      }>;
-    }>("/api/v1/forecast"),
-  getPlan: () =>
-    apiFetch<{
-      bills: Array<{
-        id: string;
-        name: string;
-        balanceCents: number;
-        targetCapCents: number | null;
-        monthlyInstallmentCents: number | null;
-      }>;
-      goals: Array<{
-        id: string;
-        name: string;
-        balanceCents: number;
-        targetCapCents: number | null;
-        monthlyInstallmentCents: number | null;
-      }>;
-      spending: { id: string; name: string; balanceCents: number } | null;
-      recentPurchases: Array<{ id: string; amountCents: number; memo: string | null }>;
-    }>("/api/v1/plan"),
+  getMe: () => apiFetch<MeDto>("/api/v1/me"),
+  selectTenant: (tenantId: string) =>
+    apiFetch<{ tenantId: string }>("/api/v1/me/tenant", {
+      method: "POST",
+      body: JSON.stringify({ tenantId }),
+    }),
+  getAllowance: () => apiFetch<AllowanceDto>("/api/v1/allowance"),
+  getForecast: () => apiFetch<ForecastListResponse>("/api/v1/forecast"),
+  getForecastDay: (date: string) =>
+    apiFetch<ForecastDayDetailDto>(`/api/v1/forecast/${encodeURIComponent(date)}`),
+  getPlan: () => apiFetch<PlanDto>("/api/v1/plan"),
   createPurchase: (body: { amountCents: number; idempotencyKey?: string; memo?: string }) =>
     apiFetch<{ id: string; sTodayCents: number | null }>("/api/v1/transactions", {
       method: "POST",
       body: JSON.stringify(body),
     }),
-  createTenant: (body: {
-    name: string;
-    tenantType: "individual" | "household" | "organization";
-    ownerEmail: string;
-    ownerName: string;
-    timezone: string;
-    paydayAmountCents: number;
-    nextPayday: string;
-    rrule: string;
-  }) =>
-    apiFetch<{ tenantId: string; userId: string }>("/api/v1/tenants", {
+  createTenant: (body: CreateTenantBody) =>
+    apiFetch<CreateTenantResult>("/api/v1/tenants", {
       method: "POST",
       body: JSON.stringify(body),
     }),
-  getPeople: () =>
-    apiFetch<{
-      people: Array<{ userId: string; name: string; email: string; role: string; status: string }>;
-    }>("/api/v1/people"),
+  getPeople: () => apiFetch<PeopleListResponse>("/api/v1/people"),
+  invitePerson: (body: InviteBody) =>
+    apiFetch<InviteResult>("/api/v1/people/invite", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  acceptInvite: (body: AcceptInviteBody) =>
+    apiFetch<InviteResult>("/api/v1/people/invite/accept", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  updatePersonRole: (userId: string, role: AssignableRole) =>
+    apiFetch<InviteResult>(`/api/v1/people/${userId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ role }),
+    }),
+  removePerson: (userId: string) =>
+    apiFetch<InviteResult>(`/api/v1/people/${userId}`, { method: "DELETE" }),
   updateFloor: (floorCents: number) =>
     apiFetch<{ floorCents: number }>("/api/v1/settings/floor", {
       method: "PATCH",
       body: JSON.stringify({ floorCents }),
     }),
-  createEnvelope: (body: {
-    name: string;
-    tierCategory: "fixed" | "sinking";
-    targetCapCents: number | null;
-    monthlyInstallmentCents: number | null;
-    dueDate?: string | null;
-    amountEachPaydayCents?: number | null;
-  }) =>
-    apiFetch<{ id?: string; proposalId?: string }>("/api/v1/envelopes", {
+  createEnvelope: (body: EnvelopePayload) =>
+    apiFetch<EnvelopeMutationResult>("/api/v1/envelopes", {
       method: "POST",
       body: JSON.stringify(body),
     }),
-  updateEnvelope: (
-    id: string,
-    body: {
-      name: string;
-      tierCategory: "fixed" | "sinking";
-      targetCapCents: number | null;
-      monthlyInstallmentCents: number | null;
-      dueDate?: string | null;
-      amountEachPaydayCents?: number | null;
-    },
-  ) =>
-    apiFetch<{ id?: string; proposalId?: string }>(`/api/v1/envelopes/${id}`, {
+  updateEnvelope: (id: string, body: EnvelopePayload) =>
+    apiFetch<EnvelopeMutationResult>(`/api/v1/envelopes/${id}`, {
       method: "PATCH",
       body: JSON.stringify(body),
     }),
-  getProposals: () =>
-    apiFetch<{
-      proposals: Array<{
-        id: string;
-        proposedByName: string;
-        payload: { name: string; tierCategory: string; targetCapCents: number | null };
-      }>;
-    }>("/api/v1/proposals"),
-  resolveProposal: (id: string, decision: "accepted" | "rejected") =>
+  getProposals: () => apiFetch<ProposalListResponse>("/api/v1/proposals"),
+  resolveProposal: (id: string, decision: ProposalDecision) =>
     apiFetch<{ ok: boolean }>(`/api/v1/proposals/${id}`, {
       method: "PATCH",
       body: JSON.stringify({ decision }),
     }),
-  invitePerson: (body: {
-    email: string;
-    name: string;
-    role: "admin" | "member" | "advisor" | "read_only";
-  }) =>
-    apiFetch<{ userId: string; status: string }>("/api/v1/people/invite", {
-      method: "POST",
-      body: JSON.stringify(body),
-    }),
-  reorderEnvelopes: (body: {
-    tierCategory: "fixed" | "sinking";
-    orderedIds: string[];
-  }) =>
+  reorderEnvelopes: (body: ReorderEnvelopesBody) =>
     apiFetch<{ ok: boolean }>("/api/v1/envelopes/reorder", {
       method: "PATCH",
       body: JSON.stringify(body),
     }),
-  getAccounts: () =>
-    apiFetch<{
-      accounts: Array<{
-        id: string;
-        name: string;
-        balanceCents: number;
-        isEveryday: boolean;
-      }>;
-    }>("/api/v1/accounts"),
+  getAccounts: () => apiFetch<AccountListResponse>("/api/v1/accounts"),
+  createAccount: (body: CreateAccountBody) =>
+    apiFetch<AccountDto>("/api/v1/accounts", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
   updateAccountBalance: (id: string, balanceCents: number) =>
-    apiFetch<{ id: string; balanceCents: number }>(`/api/v1/accounts/${id}`, {
+    apiFetch<AccountDto>(`/api/v1/accounts/${id}`, {
       method: "PATCH",
       body: JSON.stringify({ balanceCents }),
     }),

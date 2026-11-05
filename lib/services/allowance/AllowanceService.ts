@@ -1,18 +1,7 @@
 import { withTransaction } from "@/lib/db/connection";
 import { BaseService } from "@/lib/services/base/BaseService";
 import { toCents } from "@/lib/money/numeric";
-
-export interface AllowanceDto {
-  sTodayCents: number;
-  sDailyCents: number;
-  nP: number;
-  nextPayday: string | null;
-  mitigated: boolean;
-  asOfDate: string;
-  tenantName: string;
-  breachDate: string | null;
-  warningDate: string | null;
-}
+import type { AllowanceDto } from "@/types/allowance/allowance.types";
 
 export class AllowanceService extends BaseService {
   constructor() {
@@ -28,16 +17,24 @@ export class AllowanceService extends BaseService {
         next_payday: string | null;
         mitigated: boolean;
         as_of_date: string;
+        forecast_stale: boolean;
       }>(
-        `SELECT s_today::text, s_daily::text, n_p, next_payday::text, mitigated, as_of_date::text
+        `SELECT s_today::text, s_daily::text, n_p, next_payday::text, mitigated, as_of_date::text,
+                forecast_stale
          FROM allowance_snapshots WHERE tenant_id = $1`,
         [tenantId],
       );
       const row = snap.rows[0];
       if (!row) return null;
 
-      const tenant = await client.query<{ name: string }>(
-        `SELECT name FROM tenants WHERE id = $1`,
+      const tenant = await client.query<{ name: string; liquidity_floor: string }>(
+        `SELECT name, liquidity_floor::text FROM tenants WHERE id = $1`,
+        [tenantId],
+      );
+
+      const bank = await client.query<{ total: string }>(
+        `SELECT COALESCE(SUM(current_balance), 0)::text AS total
+         FROM accounts WHERE tenant_id = $1`,
         [tenantId],
       );
 
@@ -64,6 +61,9 @@ export class AllowanceService extends BaseService {
         tenantName: tenant.rows[0]?.name ?? "Household",
         breachDate: breach.rows[0]?.forecast_date ?? null,
         warningDate: warning.rows[0]?.forecast_date ?? null,
+        bankTotalCents: toCents(bank.rows[0]?.total ?? "0"),
+        keepAtLeastCents: toCents(tenant.rows[0]?.liquidity_floor ?? "0"),
+        forecastStale: row.forecast_stale,
       };
     });
   }

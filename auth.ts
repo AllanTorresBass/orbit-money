@@ -1,7 +1,6 @@
 import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import { withTransaction } from "@/lib/db/connection";
-import { HARBOR } from "@/lib/dev/harbor-ids";
 
 declare module "next-auth" {
   interface Session {
@@ -40,14 +39,16 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           const row = user.rows[0];
           if (!row) return null;
 
-          const membership = await client.query<{ tenant_id: string }>(
+          const memberships = await client.query<{ tenant_id: string }>(
             `SELECT tenant_id FROM tenant_memberships
              WHERE user_id = $1 AND status = 'active'
-             ORDER BY created_at ASC
-             LIMIT 1`,
+             ORDER BY created_at ASC`,
             [row.id],
           );
-          const tenantId = membership.rows[0]?.tenant_id ?? HARBOR.tenantId;
+          // Exactly one household is unambiguous. With several, leave the tenant
+          // unset so the API asks the person to choose instead of picking one.
+          const tenantId =
+            memberships.rows.length === 1 ? memberships.rows[0].tenant_id : undefined;
 
           return {
             id: row.id,
@@ -63,13 +64,13 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     async jwt({ token, user }) {
       if (user) {
         token.userId = user.id;
-        token.tenantId = user.tenantId ?? HARBOR.tenantId;
+        token.tenantId = user.tenantId;
       }
       return token;
     },
     async session({ session, token }) {
       session.userId = token.userId ?? "";
-      session.tenantId = token.tenantId ?? HARBOR.tenantId;
+      session.tenantId = token.tenantId ?? "";
       if (session.user) {
         session.user.id = token.userId ?? "";
       }

@@ -1,14 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
-import { api } from "@/lib/api/client";
+import { useCreateEnvelope } from "@/hooks/use-plan-mutations";
+import { useGlobalErrorHandler } from "@/hooks/use-global-error-handler";
 import { cn } from "@/lib/utils";
+import { parseDollarsToCents } from "@/lib/utils/money-input";
+import type { EditableTier } from "@/types/plan/plan.types";
 
 export interface AddEnvelopeSheetProps {
   open: boolean;
-  kind: "fixed" | "sinking";
+  kind: EditableTier;
   mode: "save" | "suggest";
   onClose: () => void;
   className?: string;
@@ -21,44 +22,35 @@ export function AddEnvelopeSheet({
   onClose,
   className,
 }: AddEnvelopeSheetProps) {
-  const queryClient = useQueryClient();
+  const create = useCreateEnvelope(kind);
+  const { handleCrudError } = useGlobalErrorHandler();
   const [name, setName] = useState(kind === "fixed" ? "Rent" : "Vacation");
   const [amount, setAmount] = useState(kind === "fixed" ? "1200" : "100");
   const [cap, setCap] = useState(kind === "fixed" ? "1200" : "1000");
   const [dueDate, setDueDate] = useState("2026-12-13");
-  const [saving, setSaving] = useState(false);
 
   if (!open) return null;
 
-  async function submit(): Promise<void> {
-    const amountCents = Math.round(Number(amount) * 100);
-    const capCents = Math.round(Number(cap) * 100);
-    if (!name.trim() || !Number.isFinite(amountCents) || amountCents <= 0) {
-      toast.error("Enter a name and amount");
+  function submit(): void {
+    const amountCents = parseDollarsToCents(amount);
+    const capCents = parseDollarsToCents(cap);
+    if (!name.trim() || amountCents === null || amountCents <= 0) {
+      handleCrudError(new Error("Invalid amount"), {
+        action: kind === "fixed" ? "save the bill" : "save the goal",
+      });
       return;
     }
-    setSaving(true);
-    try {
-      const result = await api.createEnvelope({
+    create.mutate(
+      {
         name: name.trim(),
         tierCategory: kind,
-        targetCapCents: Number.isFinite(capCents) ? capCents : null,
+        targetCapCents: capCents,
         monthlyInstallmentCents: kind === "sinking" ? amountCents : null,
         amountEachPaydayCents: kind === "fixed" ? amountCents : null,
         dueDate: kind === "fixed" ? dueDate : null,
-      });
-      if ("proposalId" in result && result.proposalId) {
-        toast.success("Someone can review this.");
-      } else {
-        toast.success(kind === "fixed" ? "Bill added" : "Goal added");
-      }
-      await queryClient.invalidateQueries({ queryKey: ["plan"] });
-      onClose();
-    } catch (error: unknown) {
-      toast.error(error instanceof Error ? error.message : "Could not save");
-    } finally {
-      setSaving(false);
-    }
+      },
+      { onSuccess: onClose },
+    );
   }
 
   return (
@@ -116,10 +108,8 @@ export function AddEnvelopeSheet({
         )}
         <button
           type="button"
-          disabled={saving}
-          onClick={() => {
-            void submit();
-          }}
+          disabled={create.isPending}
+          onClick={submit}
           className="mt-8 w-full bg-[var(--orbit-ink)] py-3 text-[17px] text-[var(--orbit-paper)] disabled:opacity-60"
         >
           {mode === "suggest" ? "Suggest this change" : "Save"}

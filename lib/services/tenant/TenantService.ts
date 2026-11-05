@@ -1,24 +1,28 @@
 import { randomUUID } from "node:crypto";
+import { firstOccurrenceOnOrAfter } from "@/lib/calendar/next-occurrence";
 import { withTransaction } from "@/lib/db/connection";
 import { fromCents } from "@/lib/money/numeric";
 import { runEvaluationPipeline } from "@/lib/pipeline/run-evaluation";
 import { BaseService } from "@/lib/services/base/BaseService";
+import type { CreateTenantInput, CreateTenantResult } from "@/types/tenant/tenant.types";
 
 export class TenantService extends BaseService {
   constructor() {
     super("TenantService");
   }
 
-  async createHousehold(input: {
-    name: string;
-    tenantType: "individual" | "household" | "organization";
-    ownerEmail: string;
-    ownerName: string;
-    timezone: string;
-    paydayAmountCents: number;
-    nextPayday: string;
-    rrule: string;
-  }): Promise<{ tenantId: string; userId: string }> {
+  async createHousehold(input: CreateTenantInput): Promise<CreateTenantResult> {
+    // One schedule per rrule. A single rule keeps the payday the person picked;
+    // several rules (twice a month) start at each rule's first date on or after it.
+    const schedules = input.rrules.map((rrule) => ({
+      rrule,
+      nextDueDate:
+        input.rrules.length === 1
+          ? input.nextPayday
+          : firstOccurrenceOnOrAfter(rrule, input.nextPayday),
+    }));
+    const firstPayday = schedules.map((s) => s.nextDueDate).sort()[0] ?? input.nextPayday;
+
     return withTransaction(null, async (client) => {
       await client.query("SELECT set_config('app.bypass_rls', 'on', true)");
 
@@ -74,18 +78,20 @@ export class TenantService extends BaseService {
         [emergencyId, spendingId],
       );
 
-      await client.query(
-        `INSERT INTO scheduled_schedules
-           (tenant_id, account_id, title, amount, direction, recurrence_rrule, next_due_date, is_active)
-         VALUES ($1, $2, 'Payday', $3, 'inflow', $4, $5::date, TRUE)`,
-        [
-          tenantId,
-          accountId,
-          fromCents(input.paydayAmountCents),
-          input.rrule,
-          input.nextPayday,
-        ],
-      );
+      for (const schedule of schedules) {
+        await client.query(
+          `INSERT INTO scheduled_schedules
+             (tenant_id, account_id, title, amount, direction, recurrence_rrule, next_due_date, is_active)
+           VALUES ($1, $2, 'Payday', $3, 'inflow', $4, $5::date, TRUE)`,
+          [
+            tenantId,
+            accountId,
+            fromCents(input.paydayAmountCents),
+            schedule.rrule,
+            schedule.nextDueDate,
+          ],
+        );
+      }
 
       // Opening payday deposit so Today has a number immediately.
       const txn = await client.query<{ id: string }>(
@@ -97,7 +103,7 @@ export class TenantService extends BaseService {
           tenantId,
           accountId,
           fromCents(input.paydayAmountCents),
-          input.nextPayday,
+          firstPayday,
           `create-payday-${tenantId}`,
         ],
       );
@@ -117,37 +123,11 @@ export class TenantService extends BaseService {
         userId: resolvedUserId,
         trigger: "sync",
         transactionId: txn.rows[0].id,
-        asOfDate: input.nextPayday,
+        asOfDate: firstPayday,
       });
 
       this.logInfo("Household created", { tenantId });
       return { tenantId, userId: resolvedUserId };
-    });
-  }
-
-  async listPeople(tenantId: string, userId: string) {
-    return withTransaction({ tenantId, userId }, async (client) => {
-      const result = await client.query<{
-        user_id: string;
-        name: string;
-        email: string;
-        role: string;
-        status: string;
-      }>(
-        `SELECT m.user_id, u.name, u.email, m.role, m.status
-         FROM tenant_memberships m
-         JOIN users u ON u.id = m.user_id
-         WHERE m.tenant_id = $1
-         ORDER BY m.role, u.name`,
-        [tenantId],
-      );
-      return result.rows.map((r) => ({
-        userId: r.user_id,
-        name: r.name,
-        email: r.email,
-        role: r.role,
-        status: r.status,
-      }));
     });
   }
 

@@ -24,4 +24,13 @@ describe("computeDailyRate", () => {
     });
     expect(after).toBe(10_923);
   });
+
+  it("clamps spendable by O_unfunded (docs/04)", () => {
+    const rate = computeDailyRate({
+      discretionaryBalanceCents: 60_000,
+      oUnfundedCents: 9_000,
+      nP: 15,
+    });
+    expect(rate?.sDailyCents).toBe(3_400);
+  });
 });

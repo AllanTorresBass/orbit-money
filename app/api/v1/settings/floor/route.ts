@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { resolveSession } from "@/lib/auth/session";
+import { TenantSelectionRequiredError, tenantSelectionResponse } from "@/lib/auth/tenant-selection";
 import { logger } from "@/lib/logger";
 import { tenantService } from "@/lib/services";
 
@@ -27,6 +28,9 @@ export async function PATCH(request: NextRequest): Promise<NextResponse> {
     );
     return NextResponse.json(result);
   } catch (error: unknown) {
+    if (error instanceof TenantSelectionRequiredError) {
+      return tenantSelectionResponse(error);
+    }
     const message = error instanceof Error ? error.message : "unknown";
     if (message === "Forbidden") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });

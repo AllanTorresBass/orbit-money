@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { resolveSession } from "@/lib/auth/session";
+import { TenantSelectionRequiredError, tenantSelectionResponse } from "@/lib/auth/tenant-selection";
 import { logger } from "@/lib/logger";
 import { allowanceService } from "@/lib/services";
 
@@ -15,6 +16,9 @@ export async function GET(): Promise<NextResponse> {
     }
     return NextResponse.json(data);
   } catch (error: unknown) {
+    if (error instanceof TenantSelectionRequiredError) {
+      return tenantSelectionResponse(error);
+    }
     logger.error("GET /allowance failed", {
       error: error instanceof Error ? error.message : "unknown",
     });

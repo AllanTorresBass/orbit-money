@@ -2,9 +2,14 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { TenantPicker } from "@/components/shell/tenant-picker";
 import { PurchaseSheet } from "@/components/today/purchase-sheet";
+import { TodaySkeleton } from "@/components/today/today-skeleton";
 import { useAllowance, useMe } from "@/hooks/use-allowance";
+import { useOnlineStatus } from "@/hooks/use-online-status";
+import { isApiError } from "@/lib/api/api-error";
 import { cn, formatMoney, formatShortDate } from "@/lib/utils";
+import { fetchErrorMessage } from "@/lib/utils/handle-fetch-error";
 
 export interface TodayScreenProps {
   className?: string;
@@ -13,16 +18,31 @@ export interface TodayScreenProps {
 export function TodayScreen({ className }: TodayScreenProps) {
   const me = useMe();
   const allowance = useAllowance();
+  const online = useOnlineStatus();
   const [sheetOpen, setSheetOpen] = useState(false);
 
   if (me.isLoading || allowance.isLoading) {
     return <TodaySkeleton className={className} />;
   }
 
+  const selectionError = [me.error, allowance.error].find(
+    (error) => isApiError(error) && error.code === "tenant_selection_required",
+  );
+  if (isApiError(selectionError)) {
+    return <TenantPicker tenants={selectionError.tenants} className={className} />;
+  }
+
   if (me.isError || allowance.isError || !allowance.data) {
     return (
       <div className={cn("px-6 pt-10", className)}>
-        <p className="text-[var(--orbit-short)]">Could not load today.</p>
+        {!online ? (
+          <p className="border-l-2 border-[var(--orbit-low)] pl-3 text-[15px] text-[var(--orbit-ink)]">
+            You&apos;re offline.
+          </p>
+        ) : null}
+        <p className="mt-4 text-[var(--orbit-short)]">
+          {fetchErrorMessage(allowance.error ?? me.error, "today")}
+        </p>
       </div>
     );
   }
@@ -35,8 +55,9 @@ export function TodayScreen({ className }: TodayScreenProps) {
       : "text-[var(--orbit-fine)]";
 
   const bannerDate = data.breachDate ?? data.warningDate;
+  const keepAtLeast = formatMoney(data.keepAtLeastCents);
   const bannerLabel = data.breachDate
-    ? `${formatShortDate(data.breachDate)} drops below the amount you want to keep.`
+    ? `${formatShortDate(data.breachDate)} drops below the ${keepAtLeast} you want to keep.`
     : data.warningDate
       ? `${formatShortDate(data.warningDate)} is getting low.`
       : null;
@@ -49,6 +70,24 @@ export function TodayScreen({ className }: TodayScreenProps) {
         </h1>
         <p className="text-[15px] text-[var(--orbit-secondary)]">Household</p>
       </Link>
+
+      {!online ? (
+        <p
+          role="status"
+          className="mt-6 border-l-2 border-[var(--orbit-low)] pl-3 text-[15px] text-[var(--orbit-ink)]"
+        >
+          You&apos;re offline. Today&apos;s number is from earlier.
+        </p>
+      ) : null}
+
+      {online && data.forecastStale ? (
+        <p
+          role="status"
+          className="mt-6 border-l-2 border-[var(--orbit-low)] pl-3 text-[15px] text-[var(--orbit-ink)]"
+        >
+          Ahead could not refresh. You are seeing the last one.
+        </p>
+      ) : null}
 
       {bannerLabel && bannerDate ? (
         <Link
@@ -89,22 +128,6 @@ export function TodayScreen({ className }: TodayScreenProps) {
       ) : null}
 
       <PurchaseSheet open={sheetOpen} onClose={() => setSheetOpen(false)} />
-    </div>
-  );
-}
-
-interface TodaySkeletonProps {
-  className?: string;
-}
-
-function TodaySkeleton({ className }: TodaySkeletonProps) {
-  return (
-    <div className={cn("mx-auto max-w-md animate-pulse px-6 pt-8", className)}>
-      <div className="h-8 w-40 rounded bg-[var(--orbit-line)]" />
-      <div className="mt-16 h-4 w-28 rounded bg-[var(--orbit-line)]" />
-      <div className="mt-4 h-16 w-56 rounded bg-[var(--orbit-line)]" />
-      <div className="mt-4 h-4 w-48 rounded bg-[var(--orbit-line)]" />
-      <div className="mt-10 h-12 w-full rounded bg-[var(--orbit-line)]" />
     </div>
   );
 }

@@ -1,22 +1,16 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
-import { api } from "@/lib/api/client";
-import { cn } from "@/lib/utils";
+import { useState } from "react";
+import { useGlobalErrorHandler } from "@/hooks/use-global-error-handler";
+import { useUpdateEnvelope } from "@/hooks/use-plan-mutations";
+import { cn, dollarsFromCents } from "@/lib/utils";
+import { parseDollarsToCents } from "@/lib/utils/money-input";
+import type { EditableEnvelope } from "@/types/plan/plan.types";
 
 export interface EditEnvelopeSheetProps {
   open: boolean;
   mode: "save" | "suggest";
-  envelope: {
-    id: string;
-    name: string;
-    tierCategory: "fixed" | "sinking";
-    balanceCents: number;
-    targetCapCents: number | null;
-    monthlyInstallmentCents: number | null;
-  };
+  envelope: EditableEnvelope;
   onClose: () => void;
   className?: string;
 }
@@ -28,58 +22,48 @@ export function EditEnvelopeSheet({
   onClose,
   className,
 }: EditEnvelopeSheetProps) {
-  const queryClient = useQueryClient();
+  const update = useUpdateEnvelope();
+  const { handleCrudError } = useGlobalErrorHandler();
+  const isFixed = envelope.tierCategory === "fixed";
   const [name, setName] = useState(envelope.name);
-  const [amount, setAmount] = useState("0");
-  const [cap, setCap] = useState("");
+  const [amount, setAmount] = useState(
+    isFixed
+      ? dollarsFromCents(envelope.targetCapCents ?? envelope.balanceCents)
+      : dollarsFromCents(envelope.monthlyInstallmentCents ?? 0),
+  );
+  const [cap, setCap] = useState(
+    isFixed
+      ? dollarsFromCents(envelope.targetCapCents ?? envelope.balanceCents)
+      : envelope.targetCapCents === null
+        ? ""
+        : dollarsFromCents(envelope.targetCapCents),
+  );
   const [dueDate, setDueDate] = useState("2026-12-13");
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    setName(envelope.name);
-    if (envelope.tierCategory === "fixed") {
-      setAmount(((envelope.targetCapCents ?? envelope.balanceCents) / 100).toFixed(2));
-      setCap(((envelope.targetCapCents ?? envelope.balanceCents) / 100).toFixed(2));
-    } else {
-      setAmount(((envelope.monthlyInstallmentCents ?? 0) / 100).toFixed(2));
-      setCap(envelope.targetCapCents === null ? "" : (envelope.targetCapCents / 100).toFixed(2));
-    }
-  }, [envelope]);
 
   if (!open) return null;
 
-  async function submit(): Promise<void> {
-    const amountCents = Math.round(Number(amount) * 100);
-    const capCents = cap.trim() === "" ? null : Math.round(Number(cap) * 100);
-    if (!name.trim() || !Number.isFinite(amountCents) || amountCents < 0) {
-      toast.error("Enter a valid name and amount");
+  function submit(): void {
+    const amountCents = parseDollarsToCents(amount);
+    const capCents = cap.trim() === "" ? null : parseDollarsToCents(cap);
+    if (!name.trim() || amountCents === null || (cap.trim() !== "" && capCents === null)) {
+      handleCrudError(new Error("Invalid amount"), { action: "save the change" });
       return;
     }
-    setSaving(true);
-    try {
-      const result = await api.updateEnvelope(envelope.id, {
-        name: name.trim(),
-        tierCategory: envelope.tierCategory,
-        targetCapCents:
-          envelope.tierCategory === "fixed" ? amountCents : capCents,
-        monthlyInstallmentCents:
-          envelope.tierCategory === "sinking" ? amountCents : null,
-        amountEachPaydayCents:
-          envelope.tierCategory === "fixed" ? amountCents : null,
-        dueDate: envelope.tierCategory === "fixed" ? dueDate : null,
-      });
-      if ("proposalId" in result && result.proposalId) {
-        toast.success("Someone can review this.");
-      } else {
-        toast.success("Saved");
-      }
-      await queryClient.invalidateQueries({ queryKey: ["plan"] });
-      onClose();
-    } catch (error: unknown) {
-      toast.error(error instanceof Error ? error.message : "Could not save");
-    } finally {
-      setSaving(false);
-    }
+    update.mutate(
+      {
+        id: envelope.id,
+        body: {
+          name: name.trim(),
+          tierCategory: envelope.tierCategory,
+          targetCapCents: envelope.tierCategory === "fixed" ? amountCents : capCents,
+          monthlyInstallmentCents: envelope.tierCategory === "sinking" ? amountCents : null,
+          amountEachPaydayCents:
+            envelope.tierCategory === "fixed" && amountCents > 0 ? amountCents : null,
+          dueDate: envelope.tierCategory === "fixed" ? dueDate : null,
+        },
+      },
+      { onSuccess: onClose },
+    );
   }
 
   return (
@@ -138,10 +122,8 @@ export function EditEnvelopeSheet({
         )}
         <button
           type="button"
-          disabled={saving}
-          onClick={() => {
-            void submit();
-          }}
+          disabled={update.isPending}
+          onClick={submit}
           className="mt-8 w-full bg-[var(--orbit-ink)] py-3 text-[17px] text-[var(--orbit-paper)] disabled:opacity-60"
         >
           {mode === "suggest" ? "Suggest this change" : "Save"}

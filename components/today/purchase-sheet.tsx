@@ -1,8 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { cn } from "@/lib/utils";
 import { useCreatePurchase } from "@/hooks/use-allowance";
+import { useGlobalErrorHandler } from "@/hooks/use-global-error-handler";
+import { cn } from "@/lib/utils";
+import { parseDollarsToCents } from "@/lib/utils/money-input";
 
 export interface PurchaseSheetProps {
   open: boolean;
@@ -13,17 +15,25 @@ export interface PurchaseSheetProps {
 export function PurchaseSheet({ open, onClose, className }: PurchaseSheetProps) {
   const [dollars, setDollars] = useState("40");
   const purchase = useCreatePurchase();
+  const { handleCrudError } = useGlobalErrorHandler();
 
   if (!open) return null;
 
   async function onSave(): Promise<void> {
-    const amount = Number(dollars);
-    if (!Number.isFinite(amount) || amount <= 0) return;
-    const amountCents = Math.round(amount * 100);
-    await purchase.mutateAsync({
-      amountCents,
-      idempotencyKey: crypto.randomUUID(),
-    });
+    const amountCents = parseDollarsToCents(dollars);
+    if (amountCents === null || amountCents <= 0) {
+      handleCrudError(new Error("Invalid amount"), { action: "save the purchase" });
+      return;
+    }
+    try {
+      await purchase.mutateAsync({
+        amountCents,
+        idempotencyKey: crypto.randomUUID(),
+      });
+    } catch {
+      // The mutation already told the person. Keep the sheet open to retry.
+      return;
+    }
     onClose();
     setDollars("40");
   }

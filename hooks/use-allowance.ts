@@ -1,9 +1,10 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
+import { useGlobalErrorHandler } from "@/hooks/use-global-error-handler";
 import { api } from "@/lib/api/client";
 import { enqueuePurchase } from "@/lib/offline/purchase-queue";
+import { invalidateMoneyQueries } from "@/lib/query-invalidation";
 import { queryKeys } from "@/lib/query-keys";
 
 export function useAllowance() {
@@ -22,6 +23,7 @@ export function useMe() {
 
 export function useCreatePurchase() {
   const queryClient = useQueryClient();
+  const { handleCrudError, notifySuccess } = useGlobalErrorHandler();
   return useMutation({
     mutationFn: async (input: { amountCents: number; idempotencyKey?: string; memo?: string }) => {
       const idempotencyKey = input.idempotencyKey ?? crypto.randomUUID();
@@ -57,16 +59,14 @@ export function useCreatePurchase() {
     },
     onSuccess: async (result) => {
       if (result.queued) {
-        toast.success("Saved offline — will sync when you are back online");
+        notifySuccess("Saved offline — will sync when you are back online");
         return;
       }
-      toast.success("Purchase saved");
-      await queryClient.invalidateQueries({ queryKey: queryKeys.allowance.all });
-      await queryClient.invalidateQueries({ queryKey: queryKeys.forecast.all });
-      await queryClient.invalidateQueries({ queryKey: queryKeys.plan.all });
+      notifySuccess("Purchase saved");
+      await invalidateMoneyQueries(queryClient);
     },
     onError: (error: unknown) => {
-      toast.error(error instanceof Error ? error.message : "Could not save purchase");
+      handleCrudError(error, { action: "save the purchase" });
     },
   });
 }
@@ -75,6 +75,15 @@ export function useForecast() {
   return useQuery({
     queryKey: queryKeys.forecast.list(),
     queryFn: () => api.getForecast(),
+  });
+}
+
+/** One forecast day. Pass null to stay idle until a row is tapped. */
+export function useForecastDay(date: string | null) {
+  return useQuery({
+    queryKey: queryKeys.forecast.detail(date ?? ""),
+    queryFn: () => api.getForecastDay(date ?? ""),
+    enabled: date !== null,
   });
 }
 

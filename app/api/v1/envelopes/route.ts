@@ -1,17 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { z } from "zod";
 import { resolveSession } from "@/lib/auth/session";
+import { TenantSelectionRequiredError, tenantSelectionResponse } from "@/lib/auth/tenant-selection";
 import { logger } from "@/lib/logger";
 import { planService } from "@/lib/services";
-
-const bodySchema = z.object({
-  name: z.string().min(1).max(100),
-  tierCategory: z.enum(["fixed", "sinking"]),
-  targetCapCents: z.number().int().nonnegative().nullable(),
-  monthlyInstallmentCents: z.number().int().nonnegative().nullable(),
-  dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
-  amountEachPaydayCents: z.number().int().positive().nullable().optional(),
-});
+import { envelopePayloadSchema } from "@/types/plan/plan.types";
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
@@ -20,7 +12,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     const json: unknown = await request.json();
-    const parsed = bodySchema.safeParse(json);
+    const parsed = envelopePayloadSchema.safeParse(json);
     if (!parsed.success) {
       return NextResponse.json({ error: "Validation failed" }, { status: 400 });
     }
@@ -34,6 +26,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     return NextResponse.json(result, { status: 201 });
   } catch (error: unknown) {
+    if (error instanceof TenantSelectionRequiredError) {
+      return tenantSelectionResponse(error);
+    }
     const message = error instanceof Error ? error.message : "unknown";
     if (message === "Forbidden") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });

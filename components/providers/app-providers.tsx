@@ -3,10 +3,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { SessionProvider } from "next-auth/react";
 import { useEffect, useState, type ReactNode } from "react";
-import { toast, Toaster } from "sonner";
+import { Toaster } from "sonner";
 import { api } from "@/lib/api/client";
 import { flushPurchaseQueue } from "@/lib/offline/purchase-queue";
-import { queryKeys } from "@/lib/query-keys";
+import { invalidateMoneyQueries } from "@/lib/query-invalidation";
+import { handleCrudError, notifyCrudSuccess } from "@/lib/utils/handle-crud-error";
 
 export interface AppProvidersProps {
   children: ReactNode;
@@ -38,17 +39,15 @@ export function AppProviders({ children }: AppProvidersProps) {
           });
         });
         if (result.flushed > 0) {
-          toast.success(
+          notifyCrudSuccess(
             result.flushed === 1
               ? "Synced 1 offline purchase"
               : `Synced ${result.flushed} offline purchases`,
           );
-          await client.invalidateQueries({ queryKey: queryKeys.allowance.all });
-          await client.invalidateQueries({ queryKey: queryKeys.forecast.all });
-          await client.invalidateQueries({ queryKey: queryKeys.plan.all });
+          await invalidateMoneyQueries(client);
         }
       } catch (error: unknown) {
-        toast.error(error instanceof Error ? error.message : "Could not sync offline purchases");
+        handleCrudError(error, { action: "sync your offline purchases" });
       } finally {
         flushing = false;
       }

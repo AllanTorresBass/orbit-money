@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { resolveSession } from "@/lib/auth/session";
+import { TenantSelectionRequiredError, tenantSelectionResponse } from "@/lib/auth/tenant-selection";
 import { logger } from "@/lib/logger";
 
 export async function GET(): Promise<NextResponse> {
@@ -18,6 +19,9 @@ export async function GET(): Promise<NextResponse> {
       canSpend: session.role === "owner" || session.role === "admin" || session.role === "member",
     });
   } catch (error: unknown) {
+    if (error instanceof TenantSelectionRequiredError) {
+      return tenantSelectionResponse(error);
+    }
     logger.error("GET /me failed", {
       error: error instanceof Error ? error.message : "unknown",
     });

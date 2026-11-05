@@ -61,11 +61,11 @@ export async function applyCycleEndSweep(
   const totalCents = plan.moves.reduce((sum, m) => sum + m.amountCents, 0);
 
   const inserted = await client.query<{ tenant_id: string }>(
-    `INSERT INTO cycle_sweeps (tenant_id, cycle_end_date, amount, destination_envelope_id)
-     VALUES ($1, $2::date, $3, $4)
+    `INSERT INTO cycle_sweeps (tenant_id, cycle_end_date, amount, destination_envelope_id, incomplete)
+     VALUES ($1, $2::date, $3, $4, $5)
      ON CONFLICT (tenant_id, cycle_end_date) DO NOTHING
      RETURNING tenant_id`,
-    [input.tenantId, input.cycleEndDate, fromCents(totalCents), destinationId],
+    [input.tenantId, input.cycleEndDate, fromCents(totalCents), destinationId, plan.incomplete],
   );
 
   if (inserted.rows.length === 0) {
@@ -119,15 +119,41 @@ export async function advanceDueDates(
   tenantId: string,
   today: string,
 ): Promise<number> {
+  return advanceMatchingSchedules(client, tenantId, today, null);
+}
+
+/**
+ * After a payday inflow settles, advance inflow schedules due today so N_p
+ * counts forward to the following payday (D8).
+ */
+export async function advanceInflowsDueToday(
+  client: PoolClient,
+  tenantId: string,
+  today: string,
+): Promise<number> {
+  return advanceMatchingSchedules(client, tenantId, today, "inflow");
+}
+
+async function advanceMatchingSchedules(
+  client: PoolClient,
+  tenantId: string,
+  today: string,
+  direction: "inflow" | "outflow" | null,
+): Promise<number> {
   const schedules = await client.query<{
     id: string;
     next_due_date: string;
     recurrence_rrule: string;
   }>(
-    `SELECT id, next_due_date::text, recurrence_rrule
-     FROM scheduled_schedules
-     WHERE tenant_id = $1 AND is_active = TRUE AND next_due_date <= $2::date`,
-    [tenantId, today],
+    direction === null
+      ? `SELECT id, next_due_date::text, recurrence_rrule
+         FROM scheduled_schedules
+         WHERE tenant_id = $1 AND is_active = TRUE AND next_due_date <= $2::date`
+      : `SELECT id, next_due_date::text, recurrence_rrule
+         FROM scheduled_schedules
+         WHERE tenant_id = $1 AND is_active = TRUE AND next_due_date <= $2::date
+           AND direction = $3`,
+    direction === null ? [tenantId, today] : [tenantId, today, direction],
   );
 
   let advanced = 0;
@@ -142,7 +168,12 @@ export async function advanceDueDates(
   }
 
   if (advanced > 0) {
-    logger.info("Advanced schedule due dates", { tenantId, today, advanced });
+    logger.info("Advanced schedule due dates", {
+      tenantId,
+      today,
+      advanced,
+      direction: direction ?? "all",
+    });
   }
   return advanced;
 }
