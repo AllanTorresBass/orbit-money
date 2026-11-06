@@ -2,7 +2,7 @@
 
 import { signIn } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useState } from "react";
+import { Suspense, useState, useSyncExternalStore } from "react";
 import { isClientDevHeaderAuthEnabled } from "@/lib/auth/dev-header-auth";
 import { isMagicLinkUiEnabled } from "@/lib/auth/magic-link";
 import { setActorUserId, setTenantId } from "@/lib/dev/actor-store";
@@ -11,7 +11,16 @@ import { OrbitMark } from "@/components/brand/orbit-mark";
 import { ThemeToggleButton } from "@/components/shell/theme-toggle";
 import { InlineBanner } from "@/components/shell/inline-banner";
 
+const subscribeNoop = () => () => {};
+
 function SignInForm() {
+  // Password managers (e.g. LastPass) inject nodes next to inputs before hydration,
+  // so the input is rendered only on the client to keep server and client markup identical.
+  const mounted = useSyncExternalStore(
+    subscribeNoop,
+    () => true,
+    () => false,
+  );
   const router = useRouter();
   const searchParams = useSearchParams();
   const [email, setEmail] = useState(
@@ -99,17 +108,21 @@ function SignInForm() {
         style={{ "--i": 1 } as React.CSSProperties}
       >
         Email
-        <input
-          type="email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-  className="orbit-field mt-2"
-  placeholder="you@example.com"
-  autoComplete="email"
-  data-lpignore="true"
-  data-1p-ignore
-  data-form-type="other"
-  />
+        {mounted ? (
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            className="orbit-field mt-2"
+            placeholder="you@example.com"
+            autoComplete="email"
+            data-lpignore="true"
+            data-1p-ignore
+            data-form-type="other"
+          />
+        ) : (
+          <div className="orbit-field mt-2" aria-hidden="true" />
+        )}
       </label>
       {credentialsEnabled ? (
         <button
