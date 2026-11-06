@@ -103,9 +103,13 @@ function SignInForm() {
           type="email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
-          className="orbit-field mt-2"
-          placeholder="you@example.com"
-        />
+  className="orbit-field mt-2"
+  placeholder="you@example.com"
+  autoComplete="email"
+  data-lpignore="true"
+  data-1p-ignore
+  data-form-type="other"
+  />
       </label>
       {credentialsEnabled ? (
         <button
