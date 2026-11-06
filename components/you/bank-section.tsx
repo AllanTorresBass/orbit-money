@@ -85,7 +85,7 @@ export function BankSection({ canManage, className }: BankSectionProps) {
                     <input
                       value={balanceText}
                       onChange={(e) => setBalanceText(e.target.value)}
-                      className="min-w-0 flex-1 border-b border-[var(--orbit-line)] bg-transparent py-1 text-[15px] outline-none"
+                      className="min-w-0 flex-1 orbit-field"
                       inputMode="decimal"
                       aria-label={`${account.name} balance`}
                     />
@@ -131,7 +131,7 @@ export function BankSection({ canManage, className }: BankSectionProps) {
               onChange={(e) => setNewName(e.target.value)}
               placeholder="Account name"
               aria-label="Account name"
-              className="w-full border-b border-[var(--orbit-line)] bg-transparent py-2 text-[17px] outline-none"
+              className="w-full orbit-field"
             />
             <div className="mt-3 flex items-baseline gap-1">
               <span>$</span>
@@ -141,7 +141,7 @@ export function BankSection({ canManage, className }: BankSectionProps) {
                 placeholder="Balance"
                 aria-label="Account balance"
                 inputMode="decimal"
-                className="w-full min-w-0 border-b border-[var(--orbit-line)] bg-transparent py-2 text-[17px] outline-none"
+                className="w-full min-w-0 orbit-field"
               />
             </div>
             <div className="mt-3 flex gap-4">

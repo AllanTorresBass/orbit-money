@@ -40,7 +40,7 @@ export function KeepAtLeastSection({ className }: KeepAtLeastSectionProps) {
         <input
           value={value}
           onChange={(e) => setTyped(e.target.value)}
-          className="w-full min-w-0 border-b border-[var(--orbit-line)] bg-transparent py-2 text-[17px] outline-none"
+          className="w-full min-w-0 orbit-field"
           inputMode="decimal"
           aria-label="Keep at least"
         />

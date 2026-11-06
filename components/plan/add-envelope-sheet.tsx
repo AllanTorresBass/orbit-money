@@ -55,12 +55,12 @@ export function AddEnvelopeSheet({
   }
 
   return (
-    <div className={cn("fixed inset-0 z-40 flex items-end justify-center bg-black/30", className)}>
-      <div className="w-full max-w-md rounded-t-2xl bg-[var(--orbit-paper)] p-6">
+    <div className={cn("orbit-sheet-backdrop", className)}>
+      <div className="orbit-sheet">
         <button type="button" onClick={onClose} className="text-[15px] text-[var(--orbit-secondary)]">
           Close
         </button>
-        <h2 className="mt-4 font-[family-name:var(--font-orbit-serif)] text-[28px] text-[var(--orbit-ink)]">
+        <h2 className="mt-4 font-[family-name:var(--font-orbit-display)] text-[28px] font-semibold tracking-tight text-[var(--orbit-ink)]">
           {kind === "fixed" ? "Add a bill" : "Add a goal"}
         </h2>
         <label className="mt-6 block text-[15px] text-[var(--orbit-secondary)]">
@@ -68,7 +68,7 @@ export function AddEnvelopeSheet({
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
-            className="mt-1 w-full border-b border-[var(--orbit-line)] bg-transparent py-2 text-[17px] text-[var(--orbit-ink)] outline-none"
+            className="mt-1 w-full orbit-field"
           />
         </label>
         <label className="mt-4 block text-[15px] text-[var(--orbit-secondary)]">
@@ -103,7 +103,7 @@ export function AddEnvelopeSheet({
               type="date"
               value={dueDate}
               onChange={(e) => setDueDate(e.target.value)}
-              className="mt-1 block w-full border-b border-[var(--orbit-line)] bg-transparent py-2 text-[17px] text-[var(--orbit-ink)] outline-none"
+              className="mt-1 block w-full orbit-field"
             />
           </label>
         )}
@@ -111,7 +111,7 @@ export function AddEnvelopeSheet({
           type="button"
           disabled={create.isPending}
           onClick={submit}
-          className="mt-8 w-full bg-[var(--orbit-ink)] py-3 text-[17px] text-[var(--orbit-paper)] disabled:opacity-60"
+          className="mt-8 w-full orbit-btn disabled:opacity-60"
         >
           {mode === "suggest" ? "Suggest this change" : "Save"}
         </button>

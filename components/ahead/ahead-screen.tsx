@@ -101,7 +101,7 @@ export function AheadScreen({ className }: AheadScreenProps) {
 
   if (forecast.data.days.length === 0) {
     return (
-      <div className={cn("mx-auto max-w-md px-6 pt-10", className)}>
+      <div className={cn("mx-auto max-w-md px-5 pt-10", className)}>
         <p className="text-[var(--orbit-secondary)]">Nothing to show yet.</p>
       </div>
     );
@@ -129,40 +129,57 @@ export function AheadScreen({ className }: AheadScreenProps) {
     .join(" ");
 
   return (
-    <div className={cn("mx-auto min-h-screen max-w-md px-6 pb-28 pt-8", className)}>
-      <h1 className="font-[family-name:var(--font-orbit-serif)] text-[28px] text-[var(--orbit-ink)]">
+    <div className={cn("mx-auto min-h-screen max-w-md px-5 pb-28 pt-8", className)}>
+      <h1 className="font-[family-name:var(--font-orbit-display)] text-[32px] font-semibold leading-tight tracking-tight text-[var(--orbit-ink)]">
         Ahead
       </h1>
-      {bank ? (
-        <>
-          <p className="mt-6 text-[15px] text-[var(--orbit-secondary)]">
-            All money in connected accounts
+      <section className="orbit-group mt-4 p-5">
+        {bank ? (
+          <>
+            <p className="text-[14px] text-[var(--orbit-secondary)]">
+              All money in connected accounts
+            </p>
+            <p className="mt-1 font-[family-name:var(--font-orbit-display)] text-[40px] font-semibold leading-none tracking-tight tabular-nums text-[var(--orbit-ink)]">
+              {formatMoney(bank.bankTotalCents)}
+            </p>
+          </>
+        ) : (
+          <p className="text-[15px] text-[var(--orbit-secondary)]">
+            Money in the bank for the next 60 days.
           </p>
-          <p className="mt-1 font-[family-name:var(--font-orbit-serif)] text-[40px] leading-none tabular-nums text-[var(--orbit-ink)]">
-            {formatMoney(bank.bankTotalCents)}
-          </p>
-        </>
-      ) : (
-        <p className="mt-1 text-[15px] text-[var(--orbit-secondary)]">
-          Money in the bank for the next 60 days.
-        </p>
-      )}
+        )}
 
-      <svg viewBox="0 0 100 100" className="mt-8 h-48 w-full" role="img" aria-label="Bank balance timeline">
-        <polyline
-          fill="none"
-          stroke="var(--orbit-ink)"
-          strokeWidth="1.5"
-          vectorEffect="non-scaling-stroke"
-          points={points}
-        />
-      </svg>
+        <svg
+          viewBox="0 0 100 100"
+          preserveAspectRatio="none"
+          className="mt-6 h-40 w-full overflow-visible"
+          role="img"
+          aria-label="Bank balance timeline"
+        >
+          <defs>
+            <linearGradient id="ahead-fill" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="var(--orbit-brand)" stopOpacity="0.28" />
+              <stop offset="100%" stopColor="var(--orbit-brand)" stopOpacity="0" />
+            </linearGradient>
+          </defs>
+          <polygon points={`0,100 ${points} 100,100`} fill="url(#ahead-fill)" />
+          <polyline
+            fill="none"
+            stroke="var(--orbit-brand)"
+            strokeWidth="2.25"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            vectorEffect="non-scaling-stroke"
+            points={points}
+          />
+        </svg>
+      </section>
 
       {keepSentence ? (
-        <p className="mt-6 text-[17px] text-[var(--orbit-ink)]">{keepSentence}</p>
+        <p className="mt-6 text-[17px] leading-relaxed text-[var(--orbit-ink)]">{keepSentence}</p>
       ) : null}
       {bank && bank.keepAtLeastCents === 0 && canChooseFloor ? (
-        <Link href="/you" className="mt-2 block text-[15px] text-[var(--orbit-secondary)]">
+        <Link href="/you" className="orbit-link mt-2 block text-[15px]">
           Choose an amount to keep.
         </Link>
       ) : null}
@@ -172,7 +189,7 @@ export function AheadScreen({ className }: AheadScreenProps) {
           Nothing leaves or arrives in the next 60 days.
         </p>
       ) : (
-        <ul className="mt-8">
+        <ul className="orbit-group mt-8">
           {rows.map((row) => (
             <li
               key={row.key}
@@ -184,15 +201,12 @@ export function AheadScreen({ className }: AheadScreenProps) {
                   node.scrollIntoView({ block: "center" });
                 }
               }}
-              className={cn(
-                "border-b border-[var(--orbit-line)]",
-                row.date === linkedDate && "border-l-2 border-l-[var(--orbit-ink)] pl-3",
-              )}
+              className={cn(row.date === linkedDate && "bg-[var(--orbit-brand-soft)]")}
             >
               <button
                 type="button"
                 onClick={() => setOpenDate(row.date)}
-                className="flex w-full items-baseline gap-3 py-3 text-left text-[15px]"
+                className="flex w-full items-baseline gap-3 px-4 py-3.5 text-left text-[15px] transition-colors hover:bg-[var(--orbit-brand-soft)]"
               >
                 <span className="w-14 shrink-0 text-[var(--orbit-secondary)]">
                   {formatShortDate(row.date)}

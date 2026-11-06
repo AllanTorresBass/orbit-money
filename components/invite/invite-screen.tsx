@@ -24,7 +24,7 @@ function InviteCard({ invite, joining, onJoin, className }: InviteCardProps) {
   const who = invite.inviterName ?? "Someone";
   return (
     <section className={cn("mt-10", className)}>
-      <h1 className="font-[family-name:var(--font-orbit-serif)] text-[28px] leading-tight text-[var(--orbit-ink)]">
+      <h1 className="font-[family-name:var(--font-orbit-display)] text-[28px] font-semibold tracking-tight leading-tight text-[var(--orbit-ink)]">
         {who} invited you to {invite.tenantName}.
       </h1>
       <p className="mt-6 text-[17px] text-[var(--orbit-ink)]">{JOIN_ROLE_SENTENCES[invite.role]}</p>
@@ -35,7 +35,7 @@ function InviteCard({ invite, joining, onJoin, className }: InviteCardProps) {
         type="button"
         disabled={joining}
         onClick={() => onJoin(invite.tenantId)}
-        className="mt-10 w-full bg-[var(--orbit-ink)] py-3 text-[17px] text-[var(--orbit-paper)] disabled:opacity-60"
+        className="mt-10 w-full orbit-btn disabled:opacity-60"
       >
         Join {invite.tenantName}
       </button>
@@ -78,7 +78,7 @@ export function InviteScreen({ className }: InviteScreenProps) {
   if (invites.isError) {
     const signedOut = isApiError(invites.error) && invites.error.status === 401;
     return (
-      <div className={cn("mx-auto max-w-md px-6 pt-16", className)}>
+      <div className={cn("mx-auto max-w-md px-5 pt-16", className)}>
         <p className="text-[17px] text-[var(--orbit-short)]">
           {fetchErrorMessage(invites.error, "your invite")}
         </p>
@@ -107,7 +107,7 @@ export function InviteScreen({ className }: InviteScreenProps) {
   const pending = invites.data?.invites ?? [];
   if (pending.length === 0) {
     return (
-      <div className={cn("mx-auto max-w-md px-6 pt-16", className)}>
+      <div className={cn("mx-auto max-w-md px-5 pt-16", className)}>
         <p className="text-[17px] text-[var(--orbit-ink)]">No invites are waiting.</p>
         <Link href="/today" className="mt-6 block text-[17px] text-[var(--orbit-ink)]">
           Go to Today
@@ -117,7 +117,7 @@ export function InviteScreen({ className }: InviteScreenProps) {
   }
 
   return (
-    <div className={cn("mx-auto min-h-screen max-w-md px-6 pb-16 pt-6", className)}>
+    <div className={cn("mx-auto min-h-screen max-w-md px-5 pb-16 pt-6", className)}>
       {pending.map((invite) => (
         <InviteCard
           key={invite.tenantId}

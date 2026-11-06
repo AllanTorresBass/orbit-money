@@ -80,18 +80,24 @@ export function PlanScreen({ className }: PlanScreenProps) {
   const { bills, goals, spending, recentPurchases, payday, sweepIncomplete } = plan.data;
 
   return (
-    <div className={cn("mx-auto min-h-screen max-w-md px-6 pb-28 pt-8", className)}>
-      <h1 className="font-[family-name:var(--font-orbit-serif)] text-[28px] text-[var(--orbit-ink)]">
+    <div className={cn("mx-auto min-h-screen max-w-md px-5 pb-28 pt-8", className)}>
+      <h1 className="font-[family-name:var(--font-orbit-display)] text-[32px] font-semibold leading-tight tracking-tight text-[var(--orbit-ink)]">
         Plan
       </h1>
       {payday ? (
-        <div className="mt-1 text-[15px] text-[var(--orbit-secondary)]">
-          <p>Payday on {formatShortDate(payday.date)}</p>
-          <p>{formatMoney(payday.amountCents)} arrives</p>
+        <div className="mt-4 flex items-center justify-between gap-4 rounded-2xl bg-[var(--orbit-brand-soft)] p-4">
+          <div className="min-w-0">
+            <p className="text-[13px] font-medium text-[var(--orbit-brand)]">
+              Payday on {formatShortDate(payday.date)}
+            </p>
+            <p className="mt-0.5 text-[22px] font-semibold tabular-nums tracking-tight text-[var(--orbit-ink)]">
+              {formatMoney(payday.amountCents)}
+            </p>
+          </div>
           {canConfigure ? (
             <button
               type="button"
-              className="mt-1 text-[15px] text-[var(--orbit-ink)]"
+              className="orbit-link shrink-0 rounded-full bg-[var(--orbit-surface)] px-4 py-2 text-[14px]"
               onClick={() => setEditingPayday(true)}
             >
               Edit payday
@@ -120,13 +126,10 @@ export function PlanScreen({ className }: PlanScreenProps) {
       ) : null}
 
       <section className="mt-10">
-        <h2 className="text-[15px] font-medium text-[var(--orbit-ink)]">Bills</h2>
-        <ul className="mt-2">
+        <h2 className="orbit-eyebrow">Bills</h2>
+        <ul className="orbit-group mt-3">
           {bills.map((b, index) => (
-            <li
-              key={b.id}
-              className="flex items-center gap-2 border-b border-[var(--orbit-line)]"
-            >
+            <li key={b.id} className="flex items-center gap-2 pr-3">
               <button
                 type="button"
                 disabled={!canOpenRow}
@@ -141,7 +144,7 @@ export function PlanScreen({ className }: PlanScreenProps) {
                     nextDueDate: b.nextDueDate,
                   })
                 }
-                className="flex min-w-0 flex-1 justify-between py-3 text-left text-[17px] disabled:cursor-default"
+                className="flex min-w-0 flex-1 items-center justify-between px-4 py-4 text-left text-[17px] disabled:cursor-default"
               >
                 <span className="truncate">{b.name}</span>
                 <span
@@ -157,7 +160,7 @@ export function PlanScreen({ className }: PlanScreenProps) {
                 <button
                   type="button"
                   aria-label={`Mark ${b.name} paid`}
-                  className="shrink-0 px-1 text-[15px] text-[var(--orbit-ink)]"
+                  className="orbit-link shrink-0 px-1 text-[15px]"
                   onClick={() => setPayingBill(b)}
                 >
                   Paid
@@ -195,7 +198,7 @@ export function PlanScreen({ className }: PlanScreenProps) {
         {showAdd ? (
           <button
             type="button"
-            className="mt-3 text-[15px] text-[var(--orbit-ink)]"
+            className="orbit-link mt-4 text-[15px]"
             onClick={() => setAddKind("fixed")}
           >
             {canSuggest ? "Suggest a bill" : "Add a bill"}
@@ -204,13 +207,10 @@ export function PlanScreen({ className }: PlanScreenProps) {
       </section>
 
       <section className="mt-8">
-        <h2 className="text-[15px] font-medium text-[var(--orbit-ink)]">Goals</h2>
-        <ul className="mt-2">
+        <h2 className="orbit-eyebrow">Goals</h2>
+        <ul className="orbit-group mt-3">
           {goals.map((g, index) => (
-            <li
-              key={g.id}
-              className="flex items-center gap-2 border-b border-[var(--orbit-line)]"
-            >
+            <li key={g.id} className="flex items-center gap-2 pr-3">
               <button
                 type="button"
                 disabled={!canOpenRow}
@@ -225,7 +225,7 @@ export function PlanScreen({ className }: PlanScreenProps) {
                     nextDueDate: null,
                   })
                 }
-                className="flex min-w-0 flex-1 justify-between py-3 text-left text-[17px] disabled:cursor-default"
+                className="flex min-w-0 flex-1 items-center justify-between px-4 py-4 text-left text-[17px] disabled:cursor-default"
               >
                 <span className="truncate">{g.name}</span>
                 <span className="ml-3 shrink-0 tabular-nums text-[var(--orbit-secondary)]">
@@ -265,7 +265,7 @@ export function PlanScreen({ className }: PlanScreenProps) {
         {showAdd ? (
           <button
             type="button"
-            className="mt-3 text-[15px] text-[var(--orbit-ink)]"
+            className="orbit-link mt-4 text-[15px]"
             onClick={() => setAddKind("sinking")}
           >
             {canSuggest ? "Suggest a goal" : "Add a goal"}
@@ -275,25 +275,27 @@ export function PlanScreen({ className }: PlanScreenProps) {
 
       {spending ? (
         <section className="mt-8">
-          <h2 className="text-[15px] font-medium text-[var(--orbit-ink)]">Spending</h2>
+          <h2 className="orbit-eyebrow">Spending</h2>
           <button
             type="button"
             onClick={() => setExplainOpen(true)}
             aria-label="How Spending works"
-            className="mt-2 flex w-full justify-between py-3 text-left text-[17px]"
+            className="orbit-group mt-3 flex w-full items-center justify-between px-4 py-4 text-left text-[17px] transition-colors hover:border-[var(--orbit-brand)]"
           >
             <span>{spending.name}</span>
-            <span className="tabular-nums">{formatMoney(spending.balanceCents)}</span>
+            <span className="font-semibold tabular-nums">{formatMoney(spending.balanceCents)}</span>
           </button>
-          <h3 className="mt-4 text-[13px] text-[var(--orbit-secondary)]">This payday</h3>
-          <ul className="mt-1">
+          <h3 className="mt-6 text-[13px] font-medium text-[var(--orbit-secondary)]">This payday</h3>
+          <ul className="orbit-group mt-2">
             {recentPurchases.length === 0 ? (
-              <li className="py-2 text-[15px] text-[var(--orbit-secondary)]">No purchases yet.</li>
+              <li className="px-4 py-4 text-[15px] text-[var(--orbit-secondary)]">
+                No purchases yet.
+              </li>
             ) : (
               recentPurchases.map((p) => (
                 <li
                   key={p.id}
-                  className="flex items-baseline justify-between gap-3 border-b border-[var(--orbit-line)] py-2 text-[15px]"
+                  className="flex items-baseline justify-between gap-3 px-4 py-3 text-[15px]"
                 >
                   <span className="min-w-0 truncate">{p.memo ?? "Purchase"}</span>
                   <span className="flex shrink-0 items-baseline gap-3">

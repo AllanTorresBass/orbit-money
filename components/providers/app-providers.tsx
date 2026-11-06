@@ -25,7 +25,7 @@ export function AppProviders({ children }: AppProvidersProps) {
       <QueryClientProvider client={client}>
         {children}
         {/* Save results show here, inline on the screen. There are no toasts. */}
-        <div className="pointer-events-none fixed inset-x-0 top-0 z-50 mx-auto max-w-md px-6 pt-3">
+        <div className="pointer-events-none fixed inset-x-0 top-0 z-50 mx-auto max-w-md px-5 pt-3">
           <MutationFeedbackBanner className="pointer-events-auto bg-[var(--orbit-paper)] py-2" />
         </div>
       </QueryClientProvider>

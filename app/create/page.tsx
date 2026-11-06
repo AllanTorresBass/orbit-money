@@ -26,7 +26,7 @@ const STEP_FIELDS: Record<1 | 2 | 3, FieldPath<CreateSpaceForm>[]> = {
 };
 
 const FIELD_CLASS =
-  "mt-2 block w-full border-b border-[var(--orbit-line)] bg-transparent py-2 text-[17px] text-[var(--orbit-ink)] outline-none";
+  "mt-2 block w-full orbit-field";
 
 function CreateForm() {
   const router = useRouter();
@@ -92,7 +92,7 @@ function CreateForm() {
 
   return (
     <form
-      className="mx-auto min-h-screen max-w-md px-6 py-10"
+      className="mx-auto min-h-screen max-w-md px-5 py-10"
       onSubmit={(event) => {
         // Enter on an earlier step moves on. Only step 3 creates the space.
         if (step !== 3) {
@@ -107,12 +107,12 @@ function CreateForm() {
       <p className="text-[15px] text-[var(--orbit-secondary)]">{step} of 3</p>
       {step === 1 ? (
         <>
-          <h1 className="mt-4 font-[family-name:var(--font-orbit-serif)] text-[28px] text-[var(--orbit-ink)]">
+          <h1 className="mt-4 font-[family-name:var(--font-orbit-display)] text-[28px] font-semibold tracking-tight text-[var(--orbit-ink)]">
             What should we call this?
           </h1>
           <input
             {...register("name")}
-            className="mt-8 w-full border-b border-[var(--orbit-line)] bg-transparent py-2 text-[17px] outline-none"
+            className="mt-8 w-full orbit-field"
             placeholder="Harbor"
             aria-label="Name"
           />
@@ -142,7 +142,7 @@ function CreateForm() {
           </div>
           <button
             type="button"
-            className="mt-10 w-full bg-[var(--orbit-ink)] py-3 text-[17px] text-[var(--orbit-paper)]"
+            className="mt-10 w-full orbit-btn"
             onClick={() => {
               void goTo(2);
             }}
@@ -163,7 +163,7 @@ function CreateForm() {
           >
             Back
           </button>
-          <h1 className="mt-4 font-[family-name:var(--font-orbit-serif)] text-[28px] text-[var(--orbit-ink)]">
+          <h1 className="mt-4 font-[family-name:var(--font-orbit-display)] text-[28px] font-semibold tracking-tight text-[var(--orbit-ink)]">
             When does money usually arrive?
           </h1>
           <div className="mt-8 flex flex-col gap-3">
@@ -188,7 +188,7 @@ function CreateForm() {
                 First day
                 <select
                   {...register("firstDay", { valueAsNumber: true })}
-                  className="ml-2 border-b border-[var(--orbit-line)] bg-transparent py-1 text-[17px] text-[var(--orbit-ink)] outline-none"
+                  className="ml-2 orbit-field"
                 >
                   {PAYDAY_DAY_CHOICES.map((choice) => (
                     <option key={choice.value} value={choice.value}>
@@ -201,7 +201,7 @@ function CreateForm() {
                 Second day
                 <select
                   {...register("secondDay", { valueAsNumber: true })}
-                  className="ml-2 border-b border-[var(--orbit-line)] bg-transparent py-1 text-[17px] text-[var(--orbit-ink)] outline-none"
+                  className="ml-2 orbit-field"
                 >
                   {PAYDAY_DAY_CHOICES.map((choice) => (
                     <option key={choice.value} value={choice.value}>
@@ -223,7 +223,7 @@ function CreateForm() {
               Day of the month
               <select
                 {...register("monthDay", { valueAsNumber: true })}
-                className="ml-2 border-b border-[var(--orbit-line)] bg-transparent py-1 text-[17px] text-[var(--orbit-ink)] outline-none"
+                className="ml-2 orbit-field"
               >
                 {PAYDAY_DAY_CHOICES.map((choice) => (
                   <option key={choice.value} value={choice.value}>
@@ -243,7 +243,7 @@ function CreateForm() {
           ) : null}
           <button
             type="button"
-            className="mt-10 w-full bg-[var(--orbit-ink)] py-3 text-[17px] text-[var(--orbit-paper)]"
+            className="mt-10 w-full orbit-btn"
             onClick={() => {
               void goTo(3);
             }}
@@ -264,7 +264,7 @@ function CreateForm() {
           >
             Back
           </button>
-          <h1 className="mt-4 font-[family-name:var(--font-orbit-serif)] text-[28px] text-[var(--orbit-ink)]">
+          <h1 className="mt-4 font-[family-name:var(--font-orbit-display)] text-[28px] font-semibold tracking-tight text-[var(--orbit-ink)]">
             About how much arrives?
           </h1>
           <p className="mt-2 text-[15px] text-[var(--orbit-secondary)]">
@@ -276,7 +276,7 @@ function CreateForm() {
             <span className="text-3xl">$</span>
             <input
               {...register("amount")}
-              className="w-full min-w-0 bg-transparent font-[family-name:var(--font-orbit-serif)] text-5xl outline-none"
+              className="w-full min-w-0 bg-transparent font-[family-name:var(--font-orbit-display)] text-5xl outline-none"
               inputMode="decimal"
               aria-label="Payday amount"
             />
@@ -287,7 +287,7 @@ function CreateForm() {
           <button
             type="submit"
             disabled={createTenant.isPending}
-            className="mt-10 w-full bg-[var(--orbit-ink)] py-3 text-[17px] text-[var(--orbit-paper)] disabled:opacity-60"
+            className="mt-10 w-full orbit-btn disabled:opacity-60"
           >
             See what I can spend
           </button>
@@ -301,7 +301,7 @@ export default function CreatePage() {
   return (
     <Suspense
       fallback={
-        <div className="mx-auto max-w-md px-6 py-16 text-[var(--orbit-secondary)]">Loading…</div>
+        <div className="mx-auto max-w-md px-5 py-16 text-[var(--orbit-secondary)]">Loading…</div>
       }
     >
       <CreateForm />

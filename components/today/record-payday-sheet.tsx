@@ -42,12 +42,12 @@ export function RecordPaydaySheet({ payday, onClose, className }: RecordPaydaySh
   }
 
   return (
-    <div className={cn("fixed inset-0 z-40 flex items-end justify-center bg-black/30", className)}>
-      <div className="w-full max-w-md rounded-t-2xl bg-[var(--orbit-paper)] p-6 shadow-lg">
+    <div className={cn("orbit-sheet-backdrop", className)}>
+      <div className="orbit-sheet">
         <button type="button" onClick={onClose} className="text-[15px] text-[var(--orbit-secondary)]">
           Close
         </button>
-        <h2 className="mt-4 font-[family-name:var(--font-orbit-serif)] text-[28px] text-[var(--orbit-ink)]">
+        <h2 className="mt-4 font-[family-name:var(--font-orbit-display)] text-[28px] font-semibold tracking-tight text-[var(--orbit-ink)]">
           Record payday
         </h2>
         <p className="mt-2 text-[15px] text-[var(--orbit-secondary)]">
@@ -59,7 +59,7 @@ export function RecordPaydaySheet({ payday, onClose, className }: RecordPaydaySh
             inputMode="decimal"
             value={dollars}
             onChange={(e) => setDollars(e.target.value)}
-            className="w-full min-w-0 bg-transparent font-[family-name:var(--font-orbit-serif)] text-5xl tabular-nums text-[var(--orbit-ink)] outline-none"
+            className="w-full min-w-0 bg-transparent font-[family-name:var(--font-orbit-display)] text-5xl tabular-nums text-[var(--orbit-ink)] outline-none"
             aria-label="Payday amount"
           />
         </div>
@@ -69,7 +69,7 @@ export function RecordPaydaySheet({ payday, onClose, className }: RecordPaydaySh
           onClick={() => {
             void onSave();
           }}
-          className="mt-10 w-full bg-[var(--orbit-ink)] py-3 text-[17px] text-[var(--orbit-paper)] disabled:opacity-60"
+          className="mt-10 w-full orbit-btn disabled:opacity-60"
         >
           Save
         </button>

@@ -168,7 +168,7 @@ export function PeopleSection({ me, className }: PeopleSectionProps) {
                             })
                           }
                           aria-label={`${person.name} role`}
-                          className="ml-2 border-b border-[var(--orbit-line)] bg-transparent py-1 text-[15px] text-[var(--orbit-ink)] outline-none"
+                          className="ml-2 orbit-field"
                         >
                           {assignable.map((r) => (
                             <option key={r} value={r}>
@@ -226,7 +226,7 @@ export function PeopleSection({ me, className }: PeopleSectionProps) {
             onChange={(e) => setInviteName(e.target.value)}
             placeholder="Name"
             aria-label="Name"
-            className="mt-3 w-full border-b border-[var(--orbit-line)] bg-transparent py-2 text-[17px] outline-none"
+            className="mt-3 w-full orbit-field"
           />
           <input
             value={inviteEmail}
@@ -234,7 +234,7 @@ export function PeopleSection({ me, className }: PeopleSectionProps) {
             placeholder="Email"
             aria-label="Email"
             type="email"
-            className="mt-3 w-full border-b border-[var(--orbit-line)] bg-transparent py-2 text-[17px] outline-none"
+            className="mt-3 w-full orbit-field"
           />
           <ul className="mt-3" role="radiogroup" aria-label="Role">
             {assignable.map((role) => {

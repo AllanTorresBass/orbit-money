@@ -1,5 +1,6 @@
 "use client";
 
+import { ChevronLeft } from "lucide-react";
 import Link from "next/link";
 import { signOut } from "next-auth/react";
 import { ActorSwitcher } from "@/components/shell/actor-switcher";
@@ -30,32 +31,33 @@ export function YouScreen({ className }: YouScreenProps) {
   const canManage = me.data?.role === "owner" || me.data?.role === "admin";
 
   return (
-    <div className={cn("mx-auto min-h-screen max-w-md px-6 pb-28 pt-8", className)}>
-      <Link href="/today" className="text-[15px] text-[var(--orbit-secondary)]">
+    <div className={cn("mx-auto min-h-screen max-w-md px-5 pb-28 pt-8", className)}>
+      <Link
+        href="/today"
+        className="orbit-link -ml-1 inline-flex items-center gap-1 rounded-full px-1 py-1 text-[15px]"
+      >
+        <ChevronLeft className="size-4" aria-hidden="true" />
         Back
       </Link>
-      <h1 className="mt-4 font-[family-name:var(--font-orbit-serif)] text-[28px] text-[var(--orbit-ink)]">
+      <h1 className="mt-4 font-[family-name:var(--font-orbit-display)] text-[32px] font-semibold leading-tight tracking-tight text-[var(--orbit-ink)]">
         You
       </h1>
 
       {me.data ? (
-        <div className="mt-8 space-y-4 text-[17px] text-[var(--orbit-ink)]">
-          <p>
-            <span className="text-[15px] text-[var(--orbit-secondary)]">Name</span>
-            <br />
-            {me.data.name}
-          </p>
-          <p>
-            <span className="text-[15px] text-[var(--orbit-secondary)]">Role</span>
-            <br />
-            {roleLabel(me.data.role)}
-          </p>
-          <p>
-            <span className="text-[15px] text-[var(--orbit-secondary)]">Household</span>
-            <br />
-            {me.data.tenantName}
-          </p>
-        </div>
+        <dl className="orbit-group mt-6 text-[17px] text-[var(--orbit-ink)]">
+          <div className="px-4 py-3.5">
+            <dt className="text-[13px] text-[var(--orbit-secondary)]">Name</dt>
+            <dd className="mt-0.5">{me.data.name}</dd>
+          </div>
+          <div className="px-4 py-3.5">
+            <dt className="text-[13px] text-[var(--orbit-secondary)]">Role</dt>
+            <dd className="mt-0.5">{roleLabel(me.data.role)}</dd>
+          </div>
+          <div className="px-4 py-3.5">
+            <dt className="text-[13px] text-[var(--orbit-secondary)]">Household</dt>
+            <dd className="mt-0.5">{me.data.tenantName}</dd>
+          </div>
+        </dl>
       ) : me.isError ? (
         <p className="mt-8 text-[var(--orbit-short)]">{fetchErrorMessage(me.error, "your details")}</p>
       ) : (
@@ -99,15 +101,15 @@ export function YouScreen({ className }: YouScreenProps) {
             <ActorSwitcher className="mt-2" />
           </>
         ) : null}
-        <Link href="/signin" className="mt-6 block text-[15px] text-[var(--orbit-ink)]">
+        <Link href="/signin" className="orbit-link mt-6 block text-[15px]">
           Sign in with email
         </Link>
-        <Link href="/create" className="mt-3 block text-[15px] text-[var(--orbit-ink)]">
+        <Link href="/create" className="orbit-link mt-3 block text-[15px]">
           Create another space
         </Link>
         <button
           type="button"
-          className="mt-3 block text-[15px] text-[var(--orbit-secondary)]"
+          className="mt-3 block text-[15px] text-[var(--orbit-secondary)] transition-colors hover:text-[var(--orbit-ink)]"
           onClick={() => {
             void signOut({ callbackUrl: "/signin" });
           }}

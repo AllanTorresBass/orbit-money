@@ -7,6 +7,7 @@ import { isClientDevHeaderAuthEnabled } from "@/lib/auth/dev-header-auth";
 import { isMagicLinkUiEnabled } from "@/lib/auth/magic-link";
 import { setActorUserId, setTenantId } from "@/lib/dev/actor-store";
 import { HARBOR } from "@/lib/dev/harbor-ids";
+import { OrbitMark } from "@/components/brand/orbit-mark";
 import { InlineBanner } from "@/components/shell/inline-banner";
 
 function SignInForm() {
@@ -79,17 +80,26 @@ function SignInForm() {
   }
 
   return (
-    <div className="mx-auto flex min-h-screen max-w-md flex-col px-6 py-16">
-      <h1 className="font-[family-name:var(--font-orbit-serif)] text-[28px] text-[var(--orbit-ink)]">
-        Orbit
-      </h1>
-      <label className="mt-12 block text-[15px] text-[var(--orbit-secondary)]">
+    <div className="mx-auto flex min-h-screen max-w-md flex-col justify-center px-5 py-16">
+      <div className="orbit-reveal" style={{ "--i": 0 } as React.CSSProperties}>
+        <OrbitMark wordmark />
+        <h1 className="mt-10 text-balance text-[34px] font-semibold leading-[1.1] tracking-tight text-[var(--orbit-ink)]">
+          Know what you can spend today.
+        </h1>
+        <p className="mt-3 text-[16px] leading-relaxed text-[var(--orbit-secondary)]">
+          One calm number, paced to your next payday.
+        </p>
+      </div>
+      <label
+        className="orbit-reveal mt-10 block text-[14px] font-medium text-[var(--orbit-secondary)]"
+        style={{ "--i": 1 } as React.CSSProperties}
+      >
         Email
         <input
           type="email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
-          className="mt-2 w-full border-b border-[var(--orbit-line)] bg-transparent py-2 text-[17px] text-[var(--orbit-ink)] outline-none"
+          className="orbit-field mt-2"
           placeholder="you@example.com"
         />
       </label>
@@ -100,7 +110,7 @@ function SignInForm() {
           onClick={() => {
             void onContinue();
           }}
-          className="mt-10 w-full bg-[var(--orbit-ink)] py-3 text-[17px] text-[var(--orbit-paper)] disabled:opacity-60"
+          className="orbit-btn mt-6 w-full"
         >
           Continue
         </button>
@@ -112,9 +122,7 @@ function SignInForm() {
           onClick={() => {
             void onMagicLink();
           }}
-          className={`w-full border border-[var(--orbit-line)] py-3 text-[17px] text-[var(--orbit-ink)] disabled:opacity-60 ${
-            credentialsEnabled ? "mt-3" : "mt-10 bg-[var(--orbit-ink)] text-[var(--orbit-paper)] border-0"
-          }`}
+          className={`w-full ${credentialsEnabled ? "orbit-btn-quiet mt-3" : "orbit-btn mt-6"}`}
         >
           Email me a link
         </button>
@@ -148,7 +156,7 @@ export default function SignInPage() {
   return (
     <Suspense
       fallback={
-        <div className="mx-auto max-w-md px-6 py-16 text-[var(--orbit-secondary)]">Loading…</div>
+        <div className="mx-auto max-w-md px-5 py-16 text-[var(--orbit-secondary)]">Loading…</div>
       }
     >
       <SignInForm />
