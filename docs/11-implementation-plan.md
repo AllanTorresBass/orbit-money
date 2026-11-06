@@ -174,6 +174,20 @@ Follow [ui/README.md](ui/README.md), [03-screens](ui/03-screens.md), [04-flows](
 
 ---
 
+## Phase 8 — Production safety and continuity
+
+Shipped after Phase 7 on `main`:
+
+- Credentials provider only when `ALLOW_DEV_HEADER_AUTH` (Harbor); production magic-link via Resend; Create requires session email match.
+- `CRON_SECRET` required; midnight authorizes Bearer only.
+- Manual `POST /api/v1/transactions/inflow` and `/outflow`; Record payday UI; BD-normalized N_p; clear hero when no future inflow.
+- Migration `008_cron_batches.sql`: cron batches, run `reason_code` / `cash_cents` / actor; out-of-band run start; tenant advisory locks; offline queue scoped by household.
+- You → Activity shows overnight batch summary.
+
+**Done when:** Production cannot sign in with email-only credentials; a household can record a payday after Create; Harbor A–E stay green. Apply `008` before deploy ([12-deploy.md](12-deploy.md)).
+
+---
+
 ## Build order (dependency)
 
 ```text
@@ -185,6 +199,7 @@ Follow [ui/README.md](ui/README.md), [03-screens](ui/03-screens.md), [04-flows](
 5 API + services + hooks (UI consumes API only)
 6 Screens and flows
 7 Cron, auth upgrade, deploy
+8 Prod auth, continuity APIs, cron batches
 ```
 
 Do not ship a screen that computes `S_today` in the client. Do not reorder pipeline steps. Do not introduce an ORM.
@@ -201,5 +216,6 @@ Do not ship a screen that computes `S_today` in the client. Do not reorder pipel
 - [x] Wrong tenant session returns empty/deny
 - [x] No `any`, no `console.*`, no secrets in git
 - [x] `.env` absent from remote; `.env.example` present
+- [x] Phase 8 continuity: Record payday / Mark bill paid APIs; cron batches; Bearer cron
 
-Remaining ops: link the Vercel project and set Neon + `AUTH_SECRET` + `CRON_SECRET` per [12-deploy.md](12-deploy.md).
+Remaining ops: link the Vercel project and set Neon + `AUTH_SECRET` + `CRON_SECRET` (+ Resend for production sign-in) per [12-deploy.md](12-deploy.md). Run migrations through `008` before traffic.

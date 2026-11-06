@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useCreateEnvelope } from "@/hooks/use-plan-mutations";
 import { useGlobalErrorHandler } from "@/hooks/use-global-error-handler";
 import { cn } from "@/lib/utils";
+import { defaultBillDueDate } from "@/lib/utils/default-due-date";
 import { parseDollarsToCents } from "@/lib/utils/money-input";
 import type { EditableTier } from "@/types/plan/plan.types";
 
@@ -27,7 +28,7 @@ export function AddEnvelopeSheet({
   const [name, setName] = useState(kind === "fixed" ? "Rent" : "Vacation");
   const [amount, setAmount] = useState(kind === "fixed" ? "1200" : "100");
   const [cap, setCap] = useState(kind === "fixed" ? "1200" : "1000");
-  const [dueDate, setDueDate] = useState("2026-12-13");
+  const [dueDate, setDueDate] = useState(() => defaultBillDueDate());
 
   if (!open) return null;
 

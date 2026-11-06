@@ -38,7 +38,8 @@ export function EditEnvelopeSheet({
         ? ""
         : dollarsFromCents(envelope.targetCapCents),
   );
-  const [dueDate, setDueDate] = useState("2026-12-13");
+  // The bill's real due date from Plan. Blank when it has no schedule yet.
+  const [dueDate, setDueDate] = useState(envelope.nextDueDate ?? "");
 
   if (!open) return null;
 
@@ -59,7 +60,7 @@ export function EditEnvelopeSheet({
           monthlyInstallmentCents: envelope.tierCategory === "sinking" ? amountCents : null,
           amountEachPaydayCents:
             envelope.tierCategory === "fixed" && amountCents > 0 ? amountCents : null,
-          dueDate: envelope.tierCategory === "fixed" ? dueDate : null,
+          dueDate: envelope.tierCategory === "fixed" && dueDate !== "" ? dueDate : null,
         },
       },
       { onSuccess: onClose },

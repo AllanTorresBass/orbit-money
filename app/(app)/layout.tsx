@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { OfflinePurchaseSync } from "@/components/shell/offline-purchase-sync";
 import { BottomNav } from "@/components/shell/bottom-nav";
 import { isDevHeaderAuthEnabled } from "@/lib/auth/dev-header-auth";
 import { resolveIdentity, resolveSession } from "@/lib/auth/session";
@@ -40,6 +41,7 @@ export default async function AppShellLayout({
 
   return (
     <>
+      <OfflinePurchaseSync />
       {children}
       <BottomNav />
     </>

@@ -11,11 +11,16 @@ import { useMe, usePlan } from "@/hooks/use-allowance";
 import { useProposals, useReorderEnvelopes } from "@/hooks/use-plan-mutations";
 import { isApiError } from "@/lib/api/api-error";
 import { cn, formatMoney, formatShortDate } from "@/lib/utils";
+import { billSetAsideLabel } from "@/lib/utils/display-labels";
 import { fetchErrorMessage } from "@/lib/utils/handle-fetch-error";
 import type { EditableEnvelope, EditableTier, PlanEnvelopeDto } from "@/types/plan/plan.types";
 
 export interface PlanScreenProps {
   className?: string;
+}
+
+function setAside(bill: PlanEnvelopeDto) {
+  return billSetAsideLabel(bill.balanceCents, bill.targetCapCents, formatMoney);
 }
 
 export function PlanScreen({ className }: PlanScreenProps) {
@@ -118,12 +123,20 @@ export function PlanScreen({ className }: PlanScreenProps) {
                     balanceCents: b.balanceCents,
                     targetCapCents: b.targetCapCents,
                     monthlyInstallmentCents: b.monthlyInstallmentCents,
+                    nextDueDate: b.nextDueDate,
                   })
                 }
                 className="flex min-w-0 flex-1 justify-between py-3 text-left text-[17px] disabled:cursor-default"
               >
                 <span className="truncate">{b.name}</span>
-                <span className="ml-3 shrink-0 tabular-nums">{formatMoney(b.balanceCents)}</span>
+                <span
+                  className={cn(
+                    "ml-3 shrink-0 tabular-nums",
+                    setAside(b).covered ? "text-[var(--orbit-secondary)]" : "text-[var(--orbit-ink)]",
+                  )}
+                >
+                  {setAside(b).text}
+                </span>
               </button>
               {canConfigure && bills.length > 1 ? (
                 <div className="flex shrink-0 gap-1">
@@ -184,6 +197,7 @@ export function PlanScreen({ className }: PlanScreenProps) {
                     balanceCents: g.balanceCents,
                     targetCapCents: g.targetCapCents,
                     monthlyInstallmentCents: g.monthlyInstallmentCents,
+                    nextDueDate: null,
                   })
                 }
                 className="flex min-w-0 flex-1 justify-between py-3 text-left text-[17px] disabled:cursor-default"

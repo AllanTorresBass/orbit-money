@@ -2,6 +2,7 @@ import type { PoolClient } from "pg";
 import { DateTime } from "luxon";
 import { RRule, rrulestr } from "rrule";
 import { addDays } from "@/lib/calendar/dates";
+import { effectiveInflowDate } from "@/lib/calendar/inflow-dates";
 import { sweepDiscretionaryAtCycleEnd } from "@/lib/engines/waterfall";
 import { logger } from "@/lib/logger";
 import { fromCents, toCents } from "@/lib/money/numeric";
@@ -68,7 +69,13 @@ export async function applyCycleEndSweep(
     discretionary: EnvelopeState;
     envelopes: EnvelopeState[];
   },
-): Promise<{ sweptCents: number; incomplete: boolean; discretionaryBalanceCents: number }> {
+): Promise<{
+  sweptCents: number;
+  incomplete: boolean;
+  discretionaryBalanceCents: number;
+  /** True when there was no Goal to receive the leftover, so nothing moved. */
+  skippedNoSink: boolean;
+}> {
   const sinks = input.envelopes.filter((e) => e.tierCategory === "sinking");
   const destinationId =
     input.discretionary.sweepEnvelopeId ??
@@ -83,6 +90,7 @@ export async function applyCycleEndSweep(
       sweptCents: 0,
       incomplete: input.discretionary.currentBalanceCents > 0,
       discretionaryBalanceCents: input.discretionary.currentBalanceCents,
+      skippedNoSink: true,
     };
   }
 
@@ -108,6 +116,7 @@ export async function applyCycleEndSweep(
       sweptCents: 0,
       incomplete: existing.rows[0].incomplete,
       discretionaryBalanceCents: input.discretionary.currentBalanceCents,
+      skippedNoSink: false,
     };
   }
 
@@ -182,6 +191,7 @@ export async function applyCycleEndSweep(
         sweptCents: totalCents,
         incomplete,
         discretionaryBalanceCents: input.discretionary.currentBalanceCents,
+        skippedNoSink: false,
       };
     }
   }
@@ -254,22 +264,25 @@ export async function applyCycleEndSweep(
     sweptCents: totalCents,
     incomplete,
     discretionaryBalanceCents: leftoverCents,
+    skippedNoSink: false,
   };
 }
 
 /**
  * Midnight: advance outflow schedules due today.
  * Inflows advance only when a matching deposit already settled today (D8).
+ * `holidays` moves an inflow's due day to the prior business day (D11).
  */
 export async function advanceMidnightDueDates(
   client: PoolClient,
   tenantId: string,
   today: string,
   settledInflowToday: boolean,
+  holidays: Set<string> | null = null,
 ): Promise<{ outflows: number; inflows: number }> {
-  const outflows = await advanceMatchingSchedules(client, tenantId, today, "outflow");
+  const outflows = await advanceMatchingSchedules(client, tenantId, today, "outflow", holidays);
   const inflows = settledInflowToday
-    ? await advanceMatchingSchedules(client, tenantId, today, "inflow")
+    ? await advanceMatchingSchedules(client, tenantId, today, "inflow", holidays)
     : 0;
   return { outflows, inflows };
 }
@@ -280,7 +293,7 @@ export async function advanceDueDates(
   tenantId: string,
   today: string,
 ): Promise<number> {
-  return advanceMatchingSchedules(client, tenantId, today, null);
+  return advanceMatchingSchedules(client, tenantId, today, null, null);
 }
 
 /**
@@ -291,41 +304,47 @@ export async function advanceInflowsDueToday(
   client: PoolClient,
   tenantId: string,
   today: string,
+  holidays: Set<string> | null = null,
 ): Promise<number> {
-  return advanceMatchingSchedules(client, tenantId, today, "inflow");
+  return advanceMatchingSchedules(client, tenantId, today, "inflow", holidays);
 }
+
+/** Furthest a business-day shift can pull an inflow earlier than its stored date. */
+const MAX_INFLOW_SHIFT_DAYS = 6;
 
 async function advanceMatchingSchedules(
   client: PoolClient,
   tenantId: string,
   today: string,
   direction: "inflow" | "outflow" | null,
+  holidays: Set<string> | null,
 ): Promise<number> {
+  // An inflow stored on a weekend is paid earlier, so look a few days past today and
+  // keep only rows whose business-day date has arrived.
+  const reach = holidays && direction !== "outflow" ? addDays(today, MAX_INFLOW_SHIFT_DAYS) : today;
   const schedules = await client.query<{
     id: string;
+    direction: "inflow" | "outflow";
     next_due_date: string;
     recurrence_rrule: string;
   }>(
     direction === null
-      ? `SELECT id, next_due_date::text, recurrence_rrule
+      ? `SELECT id, direction, next_due_date::text, recurrence_rrule
          FROM scheduled_schedules
          WHERE tenant_id = $1 AND is_active = TRUE AND next_due_date <= $2::date`
-      : `SELECT id, next_due_date::text, recurrence_rrule
+      : `SELECT id, direction, next_due_date::text, recurrence_rrule
          FROM scheduled_schedules
          WHERE tenant_id = $1 AND is_active = TRUE AND next_due_date <= $2::date
            AND direction = $3`,
-    direction === null ? [tenantId, today] : [tenantId, today, direction],
+    direction === null ? [tenantId, reach] : [tenantId, reach, direction],
   );
 
   let advanced = 0;
   for (const row of schedules.rows) {
-    const next = nextOccurrenceAfter(row.next_due_date, row.recurrence_rrule, today);
-    if (!next || next <= today) continue;
-    await client.query(
-      `UPDATE scheduled_schedules SET next_due_date = $1::date WHERE id = $2 AND tenant_id = $3`,
-      [next, row.id, tenantId],
-    );
-    advanced += 1;
+    const dueOn =
+      row.direction === "inflow" ? effectiveInflowDate(row.next_due_date, holidays) : row.next_due_date;
+    if (dueOn > today) continue;
+    if (await advanceRow(client, tenantId, row, today)) advanced += 1;
   }
 
   if (advanced > 0) {
@@ -339,7 +358,55 @@ async function advanceMatchingSchedules(
   return advanced;
 }
 
-function nextOccurrenceAfter(
+async function advanceRow(
+  client: PoolClient,
+  tenantId: string,
+  row: { id: string; next_due_date: string; recurrence_rrule: string },
+  today: string,
+): Promise<boolean> {
+  // Never move a date back: step past the later of today and the stored due date.
+  const after = row.next_due_date > today ? row.next_due_date : today;
+  const next = nextOccurrenceAfter(row.next_due_date, row.recurrence_rrule, after);
+  if (!next || next <= after) return false;
+  await client.query(
+    `UPDATE scheduled_schedules SET next_due_date = $1::date WHERE id = $2 AND tenant_id = $3`,
+    [next, row.id, tenantId],
+  );
+  return true;
+}
+
+/**
+ * Advance one named schedule after its money moved (a deposit or a bill payment).
+ * Used when the person says which schedule a transaction settles. Returns false when
+ * the schedule is missing, inactive, or has no later occurrence.
+ */
+export async function advanceScheduleById(
+  client: PoolClient,
+  tenantId: string,
+  scheduleId: string,
+  today: string,
+): Promise<boolean> {
+  const result = await client.query<{
+    id: string;
+    next_due_date: string;
+    recurrence_rrule: string;
+  }>(
+    `SELECT id, next_due_date::text, recurrence_rrule
+     FROM scheduled_schedules
+     WHERE id = $1 AND tenant_id = $2 AND is_active = TRUE
+     FOR UPDATE`,
+    [scheduleId, tenantId],
+  );
+  const row = result.rows[0];
+  if (!row) return false;
+  const advanced = await advanceRow(client, tenantId, row, today);
+  if (advanced) {
+    logger.info("Advanced named schedule", { tenantId, scheduleId, today });
+  }
+  return advanced;
+}
+
+export function nextOccurrenceAfter(
   currentDue: string,
   recurrenceRrule: string,
   today: string,

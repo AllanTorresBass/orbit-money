@@ -3,6 +3,8 @@ import NextAuth from "next-auth";
 import type { NextAuthConfig } from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import Resend from "next-auth/providers/resend";
+import { ensureUserByEmail } from "@/lib/auth/ensure-user";
+import { isDevHeaderAuthEnabled } from "@/lib/auth/dev-header-auth";
 import { getPool, withTransaction } from "@/lib/db/connection";
 import { logger } from "@/lib/logger";
 
@@ -56,20 +58,25 @@ async function resolveUserTenant(email: string): Promise<{
   });
 }
 
-const providers: NextAuthConfig["providers"] = [
-  Credentials({
-    id: "credentials",
-    credentials: {
-      email: { label: "Email", type: "email" },
-    },
-    async authorize(credentials) {
-      const email =
-        typeof credentials.email === "string" ? credentials.email.trim().toLowerCase() : "";
-      if (!email) return null;
-      return resolveUserTenant(email);
-    },
-  }),
-];
+const providers: NextAuthConfig["providers"] = [];
+
+// Harbor demo only — email-only credentials must never ship in production.
+if (isDevHeaderAuthEnabled()) {
+  providers.push(
+    Credentials({
+      id: "credentials",
+      credentials: {
+        email: { label: "Email", type: "email" },
+      },
+      async authorize(credentials) {
+        const email =
+          typeof credentials.email === "string" ? credentials.email.trim().toLowerCase() : "";
+        if (!email) return null;
+        return resolveUserTenant(email);
+      },
+    }),
+  );
+}
 
 const magicLinkConfigured = Boolean(process.env.AUTH_RESEND_KEY && process.env.AUTH_EMAIL_FROM);
 
@@ -111,13 +118,13 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   adapter: magicLinkConfigured ? PostgresAdapter(getPool()) : undefined,
   callbacks: {
     async signIn({ user, email }) {
-      // Magic-link request: only existing users. Unknown email returns false so the
-      // sign-in page can send them to Create instead of mailing a dead link.
+      // Magic-link request: ensure a users row so Create can require a session.
+      // Unknown emails get a user with no membership, then a link.
       if (email?.verificationRequest) {
         const address = user?.email?.trim().toLowerCase();
         if (!address) return false;
-        const existing = await resolveUserTenant(address);
-        return existing !== null;
+        await ensureUserByEmail({ email: address });
+        return true;
       }
       if (user?.email) {
         const existing = await resolveUserTenant(user.email.toLowerCase());

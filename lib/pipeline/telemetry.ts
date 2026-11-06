@@ -1,8 +1,14 @@
+import { randomUUID } from "node:crypto";
 import type { PoolClient } from "pg";
+import { todayInTimezone } from "@/lib/calendar/dates";
 import { getPool } from "@/lib/db/connection";
 import { logger } from "@/lib/logger";
 import { fromCents } from "@/lib/money/numeric";
-import type { PipelineStep, PipelineStepEvent } from "@/types/pipeline/pipeline.types";
+import type {
+  PipelineReasonCode,
+  PipelineStep,
+  PipelineStepEvent,
+} from "@/types/pipeline/pipeline.types";
 
 /** Emit one structured pipeline step event (no PII / payee data). */
 export function emitPipelineStep(
@@ -20,6 +26,8 @@ export interface PipelineRunContext {
   trigger: "sync" | "midnight";
   asOfDate: string;
   cronBatchId?: string;
+  /** The person whose action started the run. Absent for the midnight job. */
+  triggeredByUserId?: string;
 }
 
 /** Persist a step row and mirror to logs. */
@@ -55,6 +63,7 @@ export async function recordPipelineStep(
       JSON.stringify({
         centsIn: payload.centsIn,
         centsOut: payload.centsOut,
+        settledCount: payload.settledCount,
         nP: payload.nP,
         sDailyCents: payload.sDailyCents,
         sTodayCents: payload.sTodayCents,
@@ -73,30 +82,106 @@ export async function recordPipelineStep(
   );
 }
 
+const INSERT_RUN_SQL = `INSERT INTO pipeline_runs
+       (id, tenant_id, trigger, as_of_date, transaction_id, cron_batch_id, triggered_by_user_id, status)
+     VALUES ($1, $2, $3, $4::date, $5, $6, $7, 'running')`;
+
+function runInsertParams(
+  ctx: PipelineRunContext,
+  transactionId: string | undefined,
+): unknown[] {
+  return [
+    ctx.runId,
+    ctx.tenantId,
+    ctx.trigger,
+    ctx.asOfDate,
+    transactionId ?? null,
+    ctx.cronBatchId ?? null,
+    ctx.triggeredByUserId ?? null,
+  ];
+}
+
+/** In-transaction start. Prefer `beginPipelineRun`, which survives a rollback. */
 export async function startPipelineRun(
   client: PoolClient,
   input: {
-    runId: string;
-    tenantId: string;
-    trigger: "sync" | "midnight";
-    asOfDate: string;
+    ctx: PipelineRunContext;
     transactionId?: string;
-    cronBatchId?: string;
   },
 ): Promise<void> {
   await client.query(
-    `INSERT INTO pipeline_runs
-       (id, tenant_id, trigger, as_of_date, transaction_id, cron_batch_id, status)
-     VALUES ($1, $2, $3, $4::date, $5, $6, 'running')`,
-    [
-      input.runId,
-      input.tenantId,
-      input.trigger,
-      input.asOfDate,
-      input.transactionId ?? null,
-      input.cronBatchId ?? null,
-    ],
+    `${INSERT_RUN_SQL} ON CONFLICT (id) DO NOTHING`,
+    runInsertParams(input.ctx, input.transactionId),
   );
+}
+
+/**
+ * Open a `running` run on its own short connection, before the money transaction starts.
+ * The row commits at once, so a crash or rollback leaves evidence: the run stays `running`
+ * until the pipeline finishes it, a failure is recorded, or the abandoned sweep closes it.
+ */
+export async function beginPipelineRun(input: {
+  tenantId: string;
+  trigger: "sync" | "midnight";
+  /** Tenant-local date. Resolved from the tenant timezone when absent. */
+  asOfDate?: string;
+  transactionId?: string;
+  cronBatchId?: string;
+  triggeredByUserId?: string;
+  runId?: string;
+}): Promise<PipelineRunContext> {
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SELECT set_config('app.bypass_rls', 'on', true)");
+    let asOfDate = input.asOfDate;
+    if (!asOfDate) {
+      const tenant = await client.query<{ timezone: string }>(
+        `SELECT timezone FROM tenants WHERE id = $1`,
+        [input.tenantId],
+      );
+      asOfDate = todayInTimezone(tenant.rows[0]?.timezone ?? "UTC");
+    }
+    const ctx: PipelineRunContext = {
+      runId: input.runId ?? randomUUID(),
+      tenantId: input.tenantId,
+      trigger: input.trigger,
+      asOfDate,
+      cronBatchId: input.cronBatchId,
+      triggeredByUserId: input.triggeredByUserId,
+    };
+    await client.query(
+      `${INSERT_RUN_SQL} ON CONFLICT (id) DO NOTHING`,
+      runInsertParams(ctx, input.transactionId),
+    );
+    await client.query("COMMIT");
+    return ctx;
+  } catch (error: unknown) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+/** Drop a run that never ran a pipeline (an idempotent replay, or a rejected request). */
+export async function discardPipelineRun(runId: string): Promise<void> {
+  let client: PoolClient | null = null;
+  try {
+    client = await getPool().connect();
+    await client.query("BEGIN");
+    await client.query("SELECT set_config('app.bypass_rls', 'on', true)");
+    await client.query(`DELETE FROM pipeline_runs WHERE id = $1 AND status = 'running'`, [runId]);
+    await client.query("COMMIT");
+  } catch (error: unknown) {
+    if (client) await client.query("ROLLBACK").catch(() => undefined);
+    logger.error("Could not discard pipeline run", {
+      runId,
+      error: error instanceof Error ? error.message : "unknown",
+    });
+  } finally {
+    client?.release();
+  }
 }
 
 export async function finishPipelineRun(
@@ -112,6 +197,9 @@ export async function finishPipelineRun(
     nP: number | null;
     sweepIncomplete: boolean;
     errorCode?: string;
+    reasonCode?: PipelineReasonCode | string;
+    /** C(0): bank balances at the start of the projection. */
+    cashCents?: number | null;
   },
 ): Promise<void> {
   await client.query(
@@ -125,7 +213,9 @@ export async function finishPipelineRun(
        s_today = $7,
        n_p = $8,
        sweep_incomplete = $9,
-       error_code = $10
+       error_code = $10,
+       reason_code = $11,
+       cash_cents = $12
      WHERE id = $1`,
     [
       input.runId,
@@ -138,6 +228,8 @@ export async function finishPipelineRun(
       input.nP,
       input.sweepIncomplete,
       input.errorCode ?? null,
+      input.reasonCode ?? input.errorCode ?? null,
+      input.cashCents ?? null,
     ],
   );
 }
@@ -174,18 +266,8 @@ export async function persistFailedPipelineRun(
     await client.query("BEGIN");
     await client.query("SELECT set_config('app.bypass_rls', 'on', true)");
     await client.query(
-      `INSERT INTO pipeline_runs
-         (id, tenant_id, trigger, as_of_date, transaction_id, cron_batch_id, status)
-       VALUES ($1, $2, $3, $4::date, $5, $6, 'running')
-       ON CONFLICT (id) DO NOTHING`,
-      [
-        ctx.runId,
-        ctx.tenantId,
-        ctx.trigger,
-        ctx.asOfDate,
-        input.transactionId ?? null,
-        ctx.cronBatchId ?? null,
-      ],
+      `${INSERT_RUN_SQL} ON CONFLICT (id) DO NOTHING`,
+      runInsertParams(ctx, input.transactionId),
     );
     await finishPipelineRun(client, {
       runId: ctx.runId,
@@ -230,7 +312,8 @@ export async function closeAbandonedPipelineRuns(
 ): Promise<number> {
   const result = await client.query(
     `UPDATE pipeline_runs
-     SET status = 'error', finished_at = NOW(), error_code = 'abandoned'
+     SET status = 'error', finished_at = NOW(), error_code = 'abandoned',
+         reason_code = 'abandoned'
      WHERE status = 'running' AND started_at < NOW() - make_interval(mins => $1::int)`,
     [minutes],
   );

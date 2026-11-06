@@ -11,7 +11,7 @@ import { handleFetchError, type HandleFetchErrorOptions } from "@/lib/utils/hand
 export interface GlobalErrorHandler {
   /** Failed create, update, or delete: log and show an inline sentence. */
   handleCrudError: (error: unknown, options: HandleCrudErrorOptions) => string;
-  /** Failed read: log and toast unless `notify` is false. */
+  /** Failed read: log it. Pass `notify: true` to also show an inline sentence. */
   handleFetchError: (error: unknown, options: HandleFetchErrorOptions) => string;
   /** Successful create, update, or delete: one short inline sentence. */
   notifySuccess: (message: string) => void;

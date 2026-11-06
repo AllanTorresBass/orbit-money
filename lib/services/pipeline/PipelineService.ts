@@ -3,7 +3,11 @@ import { canConfigure, type MembershipRole } from "@/lib/auth/permissions";
 import { withTransaction } from "@/lib/db/connection";
 import { toCents } from "@/lib/money/numeric";
 import { BaseService } from "@/lib/services/base/BaseService";
-import type { PipelineRunListItem, PipelineStepRow } from "@/types/pipeline/pipeline.types";
+import type {
+  CronBatchSummary,
+  PipelineRunListItem,
+  PipelineStepRow,
+} from "@/types/pipeline/pipeline.types";
 
 interface RunRow {
   id: string;
@@ -21,6 +25,9 @@ interface RunRow {
   sweep_incomplete: boolean;
   cron_batch_id: string | null;
   error_code: string | null;
+  reason_code: string | null;
+  cash_cents: string | null;
+  triggered_by_user_id: string | null;
 }
 
 interface StepRowSql {
@@ -34,7 +41,8 @@ interface StepRowSql {
 
 const RUN_COLUMNS = `id, trigger, as_of_date::text, started_at, finished_at, status,
   forecast_stale, cuts_applied, o_unfunded::text, s_daily::text, s_today::text,
-  n_p, sweep_incomplete, cron_batch_id, error_code`;
+  n_p, sweep_incomplete, cron_batch_id, error_code, reason_code, cash_cents::text,
+  triggered_by_user_id`;
 
 function mapRun(row: RunRow): PipelineRunListItem {
   return {
@@ -53,6 +61,10 @@ function mapRun(row: RunRow): PipelineRunListItem {
     sweepIncomplete: row.sweep_incomplete,
     cronBatchId: row.cron_batch_id,
     errorCode: row.error_code,
+    reasonCode: row.reason_code,
+    // BIGINT arrives as a string; cents stay well inside Number's exact range.
+    cashCents: row.cash_cents === null ? null : Number(row.cash_cents),
+    triggeredByUserId: row.triggered_by_user_id,
   };
 }
 
@@ -96,12 +108,41 @@ export class PipelineService extends BaseService {
     asOfDate?: string;
     limit?: number;
     includeSteps?: boolean;
-  }): Promise<PipelineRunListItem[]> {
+  }): Promise<{ runs: PipelineRunListItem[]; latestBatch: CronBatchSummary | null }> {
     if (!canConfigure(input.role)) {
       throw new Error("Forbidden");
     }
     const limit = Math.min(Math.max(input.limit ?? 20, 1), 100);
     return withTransaction({ tenantId: input.tenantId, userId: input.userId }, async (client) => {
+      await client.query("SELECT set_config('app.bypass_rls', 'on', true)");
+      const batchResult = await client.query<{
+        id: string;
+        started_at: Date;
+        finished_at: Date | null;
+        due_count: number;
+        ok_count: number;
+        error_count: number;
+        skipped_count: number;
+      }>(
+        `SELECT id, started_at, finished_at, due_count, ok_count, error_count, skipped_count
+         FROM cron_batches
+         ORDER BY started_at DESC
+         LIMIT 1`,
+      );
+      const batchRow = batchResult.rows[0];
+      const latestBatch: CronBatchSummary | null = batchRow
+        ? {
+            id: batchRow.id,
+            startedAt: batchRow.started_at.toISOString(),
+            finishedAt: batchRow.finished_at ? batchRow.finished_at.toISOString() : null,
+            dueCount: batchRow.due_count,
+            okCount: batchRow.ok_count,
+            errorCount: batchRow.error_count,
+            skippedCount: batchRow.skipped_count,
+          }
+        : null;
+      await client.query("SELECT set_config('app.bypass_rls', 'off', true)");
+
       const result = await client.query<RunRow>(
         input.asOfDate
           ? `SELECT ${RUN_COLUMNS}
@@ -117,15 +158,16 @@ export class PipelineService extends BaseService {
         input.asOfDate ? [input.tenantId, input.asOfDate, limit] : [input.tenantId, limit],
       );
 
-      const runs = result.rows.map(mapRun);
-      if (!input.includeSteps) return runs;
-
-      const steps = await loadSteps(
-        client,
-        input.tenantId,
-        runs.map((r) => r.id),
-      );
-      return runs.map((run) => ({ ...run, steps: steps.get(run.id) ?? [] }));
+      let runs = result.rows.map(mapRun);
+      if (input.includeSteps) {
+        const steps = await loadSteps(
+          client,
+          input.tenantId,
+          runs.map((r) => r.id),
+        );
+        runs = runs.map((run) => ({ ...run, steps: steps.get(run.id) ?? [] }));
+      }
+      return { runs, latestBatch };
     });
   }
 

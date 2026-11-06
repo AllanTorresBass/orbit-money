@@ -6,7 +6,8 @@ const envSchema = z
     DATABASE_URL_UNPOOLED: z.string().min(1),
     NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
     AUTH_SECRET: z.string().optional(),
-    CRON_SECRET: z.string().optional(),
+    /** Required always — midnight cron authorizes only with Bearer this value. */
+    CRON_SECRET: z.string().min(8),
     ALLOW_DEV_HEADER_AUTH: z.enum(["true", "false"]).optional(),
     NEXT_PUBLIC_ALLOW_DEV_HEADER_AUTH: z.enum(["true", "false"]).optional(),
     AUTH_RESEND_KEY: z.string().optional(),
@@ -19,6 +20,13 @@ const envSchema = z
         code: "custom",
         path: ["AUTH_SECRET"],
         message: "AUTH_SECRET is required in production (min 16 chars)",
+      });
+    }
+    if (value.NODE_ENV === "production" && value.CRON_SECRET.length < 16) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["CRON_SECRET"],
+        message: "CRON_SECRET must be at least 16 characters in production",
       });
     }
     if (

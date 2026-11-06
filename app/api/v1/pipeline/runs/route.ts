@@ -19,7 +19,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     if (!parsed.success) {
       return NextResponse.json({ error: "Invalid query" }, { status: 400 });
     }
-    const runs = await pipelineService.listRuns({
+    const { runs, latestBatch } = await pipelineService.listRuns({
       tenantId: session.tenantId,
       userId: session.userId,
       role: session.role,
@@ -27,7 +27,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       limit: parsed.data.limit,
       includeSteps: parsed.data.includeSteps,
     });
-    return NextResponse.json({ runs });
+    return NextResponse.json({ runs, latestBatch });
   } catch (error: unknown) {
     if (error instanceof TenantSelectionRequiredError) {
       return tenantSelectionResponse(error);

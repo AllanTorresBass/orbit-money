@@ -2,6 +2,8 @@ import type { PoolClient } from "pg";
 import { canConfigure, type MembershipRole } from "@/lib/auth/permissions";
 import { withTransaction } from "@/lib/db/connection";
 import { fromCents, toCents } from "@/lib/money/numeric";
+import { effectiveInflowDate, loadTenantHolidays } from "@/lib/calendar/inflow-dates";
+import { todayInTimezone } from "@/lib/calendar/dates";
 import { runEvaluationPipeline } from "@/lib/pipeline/run-evaluation";
 import { BaseService } from "@/lib/services/base/BaseService";
 import type {
@@ -35,6 +37,17 @@ export class PlanService extends BaseService {
         [tenantId],
       );
 
+      // A bill's due date comes from its outflow schedule.
+      const dueDates = await client.query<{ envelope_id: string; next_due_date: string }>(
+        `SELECT envelope_id, MIN(next_due_date)::text AS next_due_date
+         FROM scheduled_schedules
+         WHERE tenant_id = $1 AND direction = 'outflow' AND is_active = TRUE
+           AND envelope_id IS NOT NULL
+         GROUP BY envelope_id`,
+        [tenantId],
+      );
+      const dueByEnvelope = new Map(dueDates.rows.map((r) => [r.envelope_id, r.next_due_date]));
+
       const mapped = envelopes.rows.map((row) => ({
         id: row.id,
         name: row.name,
@@ -44,6 +57,7 @@ export class PlanService extends BaseService {
         targetCapCents: row.target_cap === null ? null : toCents(row.target_cap),
         monthlyInstallmentCents:
           row.monthly_installment === null ? null : toCents(row.monthly_installment),
+        nextDueDate: dueByEnvelope.get(row.id) ?? null,
       }));
 
       const spending = mapped.find((e) => e.tierCategory === "discretionary") ?? null;
@@ -63,8 +77,8 @@ export class PlanService extends BaseService {
           )
         : { rows: [] };
 
-      const payday = await client.query<{ amount: string; next_due_date: string }>(
-        `SELECT amount::text, next_due_date::text
+      const payday = await client.query<{ id: string; amount: string; next_due_date: string }>(
+        `SELECT id, amount::text, next_due_date::text
          FROM scheduled_schedules
          WHERE tenant_id = $1 AND direction = 'inflow' AND is_active = TRUE
          ORDER BY next_due_date ASC
@@ -72,9 +86,23 @@ export class PlanService extends BaseService {
         [tenantId],
       );
       const paydayRow = payday.rows[0];
-      const paydayDto: PlanPaydayDto | null = paydayRow
-        ? { amountCents: toCents(paydayRow.amount), date: paydayRow.next_due_date }
-        : null;
+      let paydayDto: PlanPaydayDto | null = null;
+      if (paydayRow) {
+        // Show the day the deposit lands: a weekend payday arrives the business day before (D11).
+        const tenant = await client.query<{ timezone: string; holiday_region: string }>(
+          `SELECT timezone, holiday_region FROM tenants WHERE id = $1`,
+          [tenantId],
+        );
+        const holidays = loadTenantHolidays(
+          tenant.rows[0]?.holiday_region ?? "US",
+          todayInTimezone(tenant.rows[0]?.timezone ?? "UTC"),
+        );
+        paydayDto = {
+          amountCents: toCents(paydayRow.amount),
+          date: effectiveInflowDate(paydayRow.next_due_date, holidays),
+          scheduleId: paydayRow.id,
+        };
+      }
 
       const sweep = await client.query<{ incomplete: boolean }>(
         `SELECT incomplete FROM cycle_sweeps

@@ -25,6 +25,12 @@ import type {
   ProposalListResponse,
   ReorderEnvelopesBody,
 } from "@/types/plan/plan.types";
+import type {
+  CreatePurchaseBody,
+  RecordInflowBody,
+  RecordOutflowBody,
+  TransactionResult,
+} from "@/types/transactions/transaction.types";
 import type { CreateTenantBody, CreateTenantResult } from "@/types/tenant/tenant.types";
 
 export interface ApiClientOptions {
@@ -102,8 +108,18 @@ export const api = {
   },
   getPipelineRun: (id: string) =>
     apiFetch<PipelineRunResponse>(`/api/v1/pipeline/runs/${encodeURIComponent(id)}`),
-  createPurchase: (body: { amountCents: number; idempotencyKey?: string; memo?: string }) =>
-    apiFetch<{ id: string; sTodayCents: number | null }>("/api/v1/transactions", {
+  createPurchase: (body: CreatePurchaseBody) =>
+    apiFetch<TransactionResult>("/api/v1/transactions", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  recordInflow: (body: RecordInflowBody) =>
+    apiFetch<TransactionResult>("/api/v1/transactions/inflow", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  recordOutflow: (body: RecordOutflowBody) =>
+    apiFetch<TransactionResult>("/api/v1/transactions/outflow", {
       method: "POST",
       body: JSON.stringify(body),
     }),

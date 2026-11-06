@@ -13,6 +13,8 @@ export interface PlanEnvelopeDto {
   balanceCents: number;
   targetCapCents: number | null;
   monthlyInstallmentCents: number | null;
+  /** When a bill leaves the bank. Null for goals and bills with no schedule. */
+  nextDueDate: string | null;
 }
 
 export interface PlanPurchaseDto {
@@ -25,6 +27,8 @@ export interface PlanPurchaseDto {
 export interface PlanPaydayDto {
   amountCents: number;
   date: string;
+  /** The payday schedule, so a deposit can settle it. */
+  scheduleId: string;
 }
 
 export interface PlanDto {
@@ -64,6 +68,8 @@ export interface EditableEnvelope {
   balanceCents: number;
   targetCapCents: number | null;
   monthlyInstallmentCents: number | null;
+  /** Current due date from Plan. Null when the bill has no schedule. */
+  nextDueDate: string | null;
 }
 
 export interface ProposalDto {

@@ -4,11 +4,11 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api/client";
 import { queryKeys } from "@/lib/query-keys";
 
-/** Recent pipeline runs. Owners and admins only; pass `enabled` false for everyone else. */
+/** Recent pipeline runs (+ latest overnight batch). Owners/admins only. */
 export function usePipelineRuns(enabled: boolean, limit = 10) {
   return useQuery({
     queryKey: queryKeys.pipeline.list(limit),
-    queryFn: async () => (await api.getPipelineRuns({ limit })).runs,
+    queryFn: async () => api.getPipelineRuns({ limit }),
     enabled,
     retry: false,
   });

@@ -12,12 +12,16 @@ import { InlineBanner } from "@/components/shell/inline-banner";
 function SignInForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [email, setEmail] = useState("blair@harbor.test");
+  const [email, setEmail] = useState(
+    isClientDevHeaderAuthEnabled() ? "blair@harbor.test" : "",
+  );
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState<{ tone: "low" | "short"; text: string } | null>(null);
   const magicLinkEnabled = isMagicLinkUiEnabled();
+  const credentialsEnabled = isClientDevHeaderAuthEnabled();
 
   async function onContinue(): Promise<void> {
+    if (!credentialsEnabled) return;
     setSaving(true);
     setNotice(null);
     try {
@@ -32,18 +36,15 @@ function SignInForm() {
         return;
       }
 
-      // Dev actor headers stay aligned only when header auth is enabled.
-      if (isClientDevHeaderAuthEnabled()) {
-        const map: Record<string, string> = {
-          "alex@harbor.test": HARBOR.alexId,
-          "blair@harbor.test": HARBOR.blairId,
-          "casey@harbor.test": HARBOR.caseyId,
-        };
-        const userId = map[normalized];
-        if (userId) {
-          setActorUserId(userId);
-          setTenantId(HARBOR.tenantId);
-        }
+      const map: Record<string, string> = {
+        "alex@harbor.test": HARBOR.alexId,
+        "blair@harbor.test": HARBOR.blairId,
+        "casey@harbor.test": HARBOR.caseyId,
+      };
+      const userId = map[normalized];
+      if (userId) {
+        setActorUserId(userId);
+        setTenantId(HARBOR.tenantId);
       }
 
       const callbackUrl = searchParams.get("callbackUrl") ?? "/today";
@@ -65,15 +66,13 @@ function SignInForm() {
         callbackUrl: searchParams.get("callbackUrl") ?? "/today",
       });
       if (result?.error) {
-        if (result.error === "AccessDenied") {
-          // Unknown email: no link is sent. Spec sends them to Create.
-          router.push(`/create?email=${encodeURIComponent(normalized)}`);
-          return;
-        }
         setNotice({ tone: "short", text: "We could not send that link. Try again in a moment." });
         return;
       }
-      setNotice({ tone: "low", text: "Check your email for a sign-in link." });
+      setNotice({
+        tone: "low",
+        text: "Check your email for a sign-in link. New here? The link opens Create after you confirm.",
+      });
     } finally {
       setSaving(false);
     }
@@ -94,16 +93,18 @@ function SignInForm() {
           placeholder="you@example.com"
         />
       </label>
-      <button
-        type="button"
-        disabled={saving}
-        onClick={() => {
-          void onContinue();
-        }}
-        className="mt-10 w-full bg-[var(--orbit-ink)] py-3 text-[17px] text-[var(--orbit-paper)] disabled:opacity-60"
-      >
-        Continue
-      </button>
+      {credentialsEnabled ? (
+        <button
+          type="button"
+          disabled={saving}
+          onClick={() => {
+            void onContinue();
+          }}
+          className="mt-10 w-full bg-[var(--orbit-ink)] py-3 text-[17px] text-[var(--orbit-paper)] disabled:opacity-60"
+        >
+          Continue
+        </button>
+      ) : null}
       {magicLinkEnabled ? (
         <button
           type="button"
@@ -111,19 +112,34 @@ function SignInForm() {
           onClick={() => {
             void onMagicLink();
           }}
-          className="mt-3 w-full border border-[var(--orbit-line)] py-3 text-[17px] text-[var(--orbit-ink)] disabled:opacity-60"
+          className={`w-full border border-[var(--orbit-line)] py-3 text-[17px] text-[var(--orbit-ink)] disabled:opacity-60 ${
+            credentialsEnabled ? "mt-3" : "mt-10 bg-[var(--orbit-ink)] text-[var(--orbit-paper)] border-0"
+          }`}
         >
           Email me a link
         </button>
+      ) : null}
+      {!credentialsEnabled && !magicLinkEnabled ? (
+        <InlineBanner tone="short" className="mt-10">
+          Sign-in is not configured. Set Resend keys and NEXT_PUBLIC_MAGIC_LINK, or enable local
+          Harbor header auth.
+        </InlineBanner>
       ) : null}
       {notice ? (
         <InlineBanner tone={notice.tone} className="mt-6">
           {notice.text}
         </InlineBanner>
       ) : null}
-      <p className="mt-6 text-[13px] text-[var(--orbit-secondary)]">
-        Try alex@harbor.test, blair@harbor.test, or casey@harbor.test. New email opens Create.
-      </p>
+      {credentialsEnabled ? (
+        <p className="mt-6 text-[13px] text-[var(--orbit-secondary)]">
+          Local Harbor: try alex@harbor.test, blair@harbor.test, or casey@harbor.test. New email
+          opens Create.
+        </p>
+      ) : (
+        <p className="mt-6 text-[13px] text-[var(--orbit-secondary)]">
+          New here? Request a link — we will open Create after you confirm your email.
+        </p>
+      )}
     </div>
   );
 }

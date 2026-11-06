@@ -19,6 +19,9 @@ function run(overrides: Partial<PipelineRunListItem>): PipelineRunListItem {
     sweepIncomplete: false,
     cronBatchId: null,
     errorCode: null,
+    reasonCode: "ok",
+    cashCents: 0,
+    triggeredByUserId: null,
     ...overrides,
   };
 }

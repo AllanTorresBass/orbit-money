@@ -1,11 +1,11 @@
-import { toast } from "sonner";
 import { isApiError } from "@/lib/api/api-error";
+import { pushInlineFeedback } from "@/lib/feedback/inline-feedback-store";
 import { logger } from "@/lib/logger";
 
 export interface HandleFetchErrorOptions {
   /** What was being loaded, in plain words: "today", "your people". */
   resource: string;
-  /** Show a toast. Screens that render their own error state pass false. */
+  /** Also show the message inline. Off by default: screens render their own error state. */
   notify?: boolean;
 }
 
@@ -28,15 +28,15 @@ export function fetchErrorMessage(error: unknown, resource: string): string {
   return `Could not load ${resource}.`;
 }
 
-/** Log and (optionally) toast a failed read. Returns the message. */
+/** Log and (optionally) show an inline sentence for a failed read. Returns the message. */
 export function handleFetchError(error: unknown, options: HandleFetchErrorOptions): string {
   const message = fetchErrorMessage(error, options.resource);
   logger.error("Fetch failed", {
     resource: options.resource,
     error: error instanceof Error ? error.message : "unknown",
   });
-  if (options.notify ?? true) {
-    toast.error(message);
+  if (options.notify ?? false) {
+    pushInlineFeedback("short", message);
   }
   return message;
 }

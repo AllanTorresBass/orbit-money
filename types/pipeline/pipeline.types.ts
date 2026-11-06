@@ -15,6 +15,17 @@ export const pipelineStepSchema = z.enum([
 
 export type PipelineStep = z.infer<typeof pipelineStepSchema>;
 
+/** Why a run ended the way it did. Short, PII-free, stored in `pipeline_runs.reason_code`. */
+export const pipelineReasonCodeSchema = z.enum([
+  "ok",
+  "no_future_inflow",
+  "holiday_calendar_missing",
+  "breach_mitigated",
+  "breach_alert",
+  "sweep_skipped_no_sink",
+]);
+export type PipelineReasonCode = z.infer<typeof pipelineReasonCodeSchema>;
+
 export const pipelineStepEventSchema = z.object({
   kind: z.literal("pipeline_step"),
   runId: z.string().uuid(),
@@ -24,6 +35,7 @@ export const pipelineStepEventSchema = z.object({
   step: pipelineStepSchema,
   centsIn: z.number().int().optional(),
   centsOut: z.number().int().optional(),
+  settledCount: z.number().int().nonnegative().optional(),
   nP: z.number().int().nullable().optional(),
   sDailyCents: z.number().int().nullable().optional(),
   sTodayCents: z.number().int().nullable().optional(),
@@ -53,6 +65,7 @@ export interface PipelineRunSummary {
   forecastStale: boolean;
   cutsApplied: number;
   sweepIncomplete: boolean;
+  reasonCode: string;
 }
 
 export interface PipelineRunListItem {
@@ -71,6 +84,10 @@ export interface PipelineRunListItem {
   sweepIncomplete: boolean;
   cronBatchId: string | null;
   errorCode: string | null;
+  reasonCode: string | null;
+  /** C(0): bank balances at the start of the projection. */
+  cashCents: number | null;
+  triggeredByUserId: string | null;
   /** Present only when the caller asked for steps. */
   steps?: PipelineStepRow[];
 }
@@ -108,10 +125,29 @@ export type PipelineRunsQuery = z.output<typeof pipelineRunsQuerySchema>;
 
 export const pipelineRunIdParamSchema = z.object({ id: entityIdSchema });
 
-export interface PipelineRunListResponse {
-  runs: PipelineRunListItem[];
-}
-
 export interface PipelineRunResponse {
   run: PipelineRunListItem;
+}
+
+/** Per-tick counters stored on `cron_batches`. */
+export interface CronBatchCounts {
+  dueCount: number;
+  okCount: number;
+  errorCount: number;
+  skippedCount: number;
+}
+
+export interface CronBatchSummary {
+  id: string;
+  startedAt: string;
+  finishedAt: string | null;
+  dueCount: number;
+  okCount: number;
+  errorCount: number;
+  skippedCount: number;
+}
+
+export interface PipelineRunListResponse {
+  runs: PipelineRunListItem[];
+  latestBatch: CronBatchSummary | null;
 }

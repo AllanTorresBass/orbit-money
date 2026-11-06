@@ -1,11 +1,12 @@
-import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { localHourInTimezone, todayInTimezone } from "@/lib/calendar/dates";
 import { withTransaction } from "@/lib/db/connection";
 import { getEnv } from "@/lib/env";
 import { logger } from "@/lib/logger";
+import { finishCronBatch, startCronBatch } from "@/lib/pipeline/cron-batch";
 import { runEvaluationPipeline } from "@/lib/pipeline/run-evaluation";
 import { closeAbandonedPipelineRuns, prunePipelineRuns } from "@/lib/pipeline/telemetry";
+import { withPipelineRun } from "@/lib/pipeline/with-run";
 import { mapWithConcurrency } from "@/lib/utils/promise-pool";
 
 const SYSTEM_USER_ID = "00000000-0000-0000-0000-000000000000";
@@ -25,15 +26,19 @@ interface TenantResult {
 async function runMidnight(request: NextRequest): Promise<NextResponse> {
   try {
     const secret = getEnv().CRON_SECRET;
-    const auth = request.headers.get("authorization");
+    const authHeader = request.headers.get("authorization");
     const cronHeader = request.headers.get("x-vercel-cron");
-    if (secret && auth !== `Bearer ${secret}` && !cronHeader) {
+    // Bearer only — x-vercel-cron is advisory (logged), never sufficient alone.
+    if (authHeader !== `Bearer ${secret}`) {
+      logger.info("Midnight cron rejected", {
+        hasCronHeader: Boolean(cronHeader),
+        hasBearer: Boolean(authHeader?.startsWith("Bearer ")),
+      });
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     const forceAll = request.nextUrl.searchParams.get("all") === "1";
     const now = new Date();
-    const cronBatchId = randomUUID();
 
     const tenants = await withTransaction(null, async (client) => {
       await client.query("SELECT set_config('app.bypass_rls', 'on', true)");
@@ -58,6 +63,13 @@ async function runMidnight(request: NextRequest): Promise<NextResponse> {
       }
     }
 
+    const batchMeta = {
+      tenantCount: tenants.length,
+      timezoneCount: byTimezone.size,
+      forceAll,
+    };
+    const cronBatchId = await startCronBatch({ dueCount: dueTenantIds.size, meta: batchMeta });
+
     logger.info("Midnight cron start", {
       cronBatchId,
       tenantCount: tenants.length,
@@ -74,18 +86,23 @@ async function runMidnight(request: NextRequest): Promise<NextResponse> {
           return { tenantId: tenant.id, ok: true, skipped: true };
         }
         try {
-          const summary = await withTransaction(
-            { tenantId: tenant.id, userId: SYSTEM_USER_ID },
-            async (client) => {
-              await client.query("SELECT set_config('app.bypass_rls', 'on', true)");
-              return runEvaluationPipeline(client, {
-                tenantId: tenant.id,
-                userId: SYSTEM_USER_ID,
-                trigger: "midnight",
-                asOfDate: todayInTimezone(tenant.timezone, now),
-                cronBatchId,
-              });
-            },
+          const asOfDate = todayInTimezone(tenant.timezone, now);
+          // The run row commits on its own connection first, so a rollback or crash leaves it.
+          const summary = await withPipelineRun(
+            { tenantId: tenant.id, trigger: "midnight", asOfDate, cronBatchId },
+            (run) =>
+              withTransaction({ tenantId: tenant.id, userId: SYSTEM_USER_ID }, async (client) => {
+                await client.query("SELECT set_config('app.bypass_rls', 'on', true)");
+                return runEvaluationPipeline(client, {
+                  tenantId: tenant.id,
+                  userId: SYSTEM_USER_ID,
+                  trigger: "midnight",
+                  asOfDate,
+                  cronBatchId,
+                  runId: run.runId,
+                  runPreStarted: true,
+                });
+              }),
           );
           return { tenantId: tenant.id, ok: true, runId: summary.runId };
         } catch (error: unknown) {
@@ -118,12 +135,31 @@ async function runMidnight(request: NextRequest): Promise<NextResponse> {
         error: error instanceof Error ? error.message : "unknown",
       });
     }
-    logger.info("Midnight cron done", { cronBatchId, ran: dueTenantIds.size, pruned, closed });
+    const okCount = results.filter((r) => r.ok && !r.skipped).length;
+    const errorCount = results.filter((r) => !r.ok).length;
+    const skippedCount = results.filter((r) => r.skipped).length;
+    await finishCronBatch(
+      cronBatchId,
+      { dueCount: dueTenantIds.size, okCount, errorCount, skippedCount },
+      { pruned, closedAbandoned: closed },
+    );
+    logger.info("Midnight cron done", {
+      cronBatchId,
+      ran: dueTenantIds.size,
+      okCount,
+      errorCount,
+      skippedCount,
+      pruned,
+      closed,
+    });
 
     return NextResponse.json({
       ok: true,
       cronBatchId,
       ran: dueTenantIds.size,
+      okCount,
+      errorCount,
+      skippedCount,
       pruned,
       closedAbandoned: closed,
       results,

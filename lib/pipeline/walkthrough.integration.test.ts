@@ -103,7 +103,7 @@ describe("Harbor walkthrough purchase", () => {
     expect(snapshot.sTodayCents).toBe(7_218);
 
     // Observability: the purchase wrote a finished run with ordered steps, and owners can read it.
-    const runs = await pipelineService.listRuns({
+    const listed = await pipelineService.listRuns({
       tenantId: HARBOR.tenantId,
       userId: HARBOR.alexId,
       role: "owner",
@@ -111,10 +111,10 @@ describe("Harbor walkthrough purchase", () => {
       limit: 1,
       includeSteps: true,
     });
-    const latest = runs[0];
+    const latest = listed.runs[0];
     expect(latest).toBeDefined();
     expect(latest.status).toBe("ok");
-    const stepNames = (latest.steps ?? []).map((step) => step.step);
+    const stepNames = (latest.steps ?? []).map((step: { step: string }) => step.step);
     expect(stepNames).toEqual(
       expect.arrayContaining(["settle", "rate", "project", "floor_check", "publish"]),
     );

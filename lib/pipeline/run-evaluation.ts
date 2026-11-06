@@ -1,10 +1,15 @@
 import { randomUUID } from "node:crypto";
 import type { PoolClient } from "pg";
 import { DateTime } from "luxon";
-import { RRule, rrulestr } from "rrule";
-import { addDays, daysUntilNextInflow, parseISODate, todayInTimezone } from "@/lib/calendar/dates";
+import { addDays, daysUntilNextInflow, todayInTimezone } from "@/lib/calendar/dates";
 import { expandSchedules } from "@/lib/calendar/expand-schedules";
-import { getHolidaySet } from "@/lib/calendar/holidays";
+import {
+  effectiveInflowDate,
+  loadTenantHolidays,
+  matchesScheduledAmount,
+  pickNextInflowDate,
+} from "@/lib/calendar/inflow-dates";
+import { lockTenantForUpdate } from "@/lib/db/advisory-lock";
 import { buildDueAmountByEnvelopeId, type ScheduleDueRow } from "@/lib/engines/due-amounts";
 import { projectCashflow } from "@/lib/engines/forecast";
 import { buildProjectedBurnByDate } from "@/lib/engines/projected-burn";
@@ -17,9 +22,12 @@ import { fromCents, toCents } from "@/lib/money/numeric";
 import {
   advanceInflowsDueToday,
   advanceMidnightDueDates,
+  advanceScheduleById,
   applyCycleEndSweep,
   isCycleEndDay,
+  nextOccurrenceAfter,
 } from "@/lib/pipeline/cycle-boundary";
+import { pickReasonCode } from "@/lib/pipeline/reason-code";
 import {
   finishPipelineRun,
   persistFailedPipelineRun,
@@ -39,7 +47,12 @@ export interface PipelineInput {
   transactionId?: string;
   asOfDate?: string;
   cronBatchId?: string;
+  /** Run id from `beginPipelineRun`. A fresh id is made when absent. */
   runId?: string;
+  /** True when `runId` was already committed on its own connection before this transaction. */
+  runPreStarted?: boolean;
+  /** The inflow or outflow schedule the settling transaction pays. Advanced when it settles. */
+  advanceScheduleId?: string;
 }
 
 function mapEnvelope(row: {
@@ -113,32 +126,38 @@ function toScheduleDueRows(rows: ScheduleSourceRow[]): ScheduleDueRow[] {
   }));
 }
 
+interface InflowScheduleRow {
+  next_due_date: string;
+  recurrence_rrule: string;
+  amount: string;
+}
+
+async function loadInflowSchedules(
+  client: PoolClient,
+  tenantId: string,
+): Promise<InflowScheduleRow[]> {
+  const result = await client.query<InflowScheduleRow>(
+    `SELECT next_due_date::text AS next_due_date, recurrence_rrule, amount::text AS amount
+     FROM scheduled_schedules
+     WHERE tenant_id = $1 AND is_active = TRUE AND direction = 'inflow'`,
+    [tenantId],
+  );
+  return result.rows;
+}
+
+/** Next payday on the business-day calendar (D11). A Saturday payday is Friday. */
 async function nextInflowDate(
   client: PoolClient,
   tenantId: string,
   today: string,
+  holidays: Set<string> | null,
 ): Promise<string | null> {
-  const result = await client.query<{ next_due_date: string }>(
-    `SELECT next_due_date::text AS next_due_date
-     FROM scheduled_schedules
-     WHERE tenant_id = $1 AND is_active = TRUE AND direction = 'inflow'
-       AND next_due_date > $2::date
-     ORDER BY next_due_date ASC
-     LIMIT 1`,
-    [tenantId, today],
+  const rows = await loadInflowSchedules(client, tenantId);
+  return pickNextInflowDate(
+    rows.map((r) => r.next_due_date),
+    today,
+    holidays,
   );
-  if (result.rows[0]?.next_due_date) {
-    return result.rows[0].next_due_date;
-  }
-  const todayInflow = await client.query<{ next_due_date: string }>(
-    `SELECT next_due_date::text AS next_due_date
-     FROM scheduled_schedules
-     WHERE tenant_id = $1 AND is_active = TRUE AND direction = 'inflow'
-       AND next_due_date = $2::date
-     LIMIT 1`,
-    [tenantId, today],
-  );
-  return todayInflow.rows[0]?.next_due_date ?? null;
 }
 
 /** D8 — payday settled only when a credit matches an active inflow due today. */
@@ -146,27 +165,39 @@ async function hasSettledInflowToday(
   client: PoolClient,
   tenantId: string,
   today: string,
+  holidays: Set<string> | null,
 ): Promise<boolean> {
-  const result = await client.query<{ id: string }>(
-    `SELECT t.id
-     FROM transactions t
-     WHERE t.tenant_id = $1
-       AND t.booked_date = $2::date
-       AND t.amount > 0
-       AND t.settled_at IS NOT NULL
-       AND EXISTS (
-         SELECT 1
-         FROM scheduled_schedules s
-         WHERE s.tenant_id = t.tenant_id
-           AND s.is_active = TRUE
-           AND s.direction = 'inflow'
-           AND s.next_due_date = $2::date
-           AND s.amount = t.amount
-       )
-     LIMIT 1`,
+  const credits = await client.query<{ amount: string }>(
+    `SELECT amount::text
+     FROM transactions
+     WHERE tenant_id = $1
+       AND booked_date = $2::date
+       AND amount > 0
+       AND settled_at IS NOT NULL`,
     [tenantId, today],
   );
-  return result.rows.length > 0;
+  if (credits.rows.length === 0) return false;
+  const schedules = await loadInflowSchedules(client, tenantId);
+  return schedules.some(
+    (s) =>
+      effectiveInflowDate(s.next_due_date, holidays) === today &&
+      credits.rows.some((c) => matchesScheduledAmount(toCents(c.amount), toCents(s.amount))),
+  );
+}
+
+/** The payday after the one a schedule row stands for, on the business-day calendar. */
+function followingInflowOf(
+  row: Pick<InflowScheduleRow, "next_due_date" | "recurrence_rrule">,
+  today: string,
+  holidays: Set<string> | null,
+): string {
+  // Step past the later of today and the stored date, so a weekend payday never maps to itself.
+  const after = row.next_due_date > today ? row.next_due_date : today;
+  const next =
+    nextOccurrenceAfter(row.next_due_date, row.recurrence_rrule, after) ??
+    DateTime.fromISO(row.next_due_date, { zone: "utc" }).plus({ months: 1 }).toISODate() ??
+    row.next_due_date;
+  return effectiveInflowDate(next, holidays);
 }
 
 /** Following payday after `today`, using RRULE when today's inflow is still anchored. */
@@ -174,60 +205,55 @@ async function peekFollowingInflow(
   client: PoolClient,
   tenantId: string,
   today: string,
+  holidays: Set<string> | null,
 ): Promise<string | null> {
-  const future = await client.query<{ next_due_date: string }>(
-    `SELECT next_due_date::text AS next_due_date
-     FROM scheduled_schedules
-     WHERE tenant_id = $1 AND is_active = TRUE AND direction = 'inflow'
-       AND next_due_date > $2::date
-     ORDER BY next_due_date ASC
-     LIMIT 1`,
-    [tenantId, today],
-  );
-  if (future.rows[0]?.next_due_date) {
-    return future.rows[0].next_due_date;
-  }
+  const rows = await loadInflowSchedules(client, tenantId);
+  const future = rows
+    .map((r) => effectiveInflowDate(r.next_due_date, holidays))
+    .filter((d) => d > today)
+    .sort()[0];
+  if (future) return future;
 
-  const current = await client.query<{ next_due_date: string; recurrence_rrule: string }>(
-    `SELECT next_due_date::text, recurrence_rrule
-     FROM scheduled_schedules
-     WHERE tenant_id = $1 AND is_active = TRUE AND direction = 'inflow'
-       AND next_due_date <= $2::date
-     ORDER BY next_due_date DESC
-     LIMIT 1`,
-    [tenantId, today],
-  );
-  const row = current.rows[0];
-  if (!row) return null;
-
-  const ruleText = row.recurrence_rrule.trim().toUpperCase().startsWith("RRULE:")
-    ? row.recurrence_rrule.trim()
-    : `RRULE:${row.recurrence_rrule.trim()}`;
-  const [y, m, d] = today.split("-").map(Number);
-  const afterDate = new Date(Date.UTC(y, m - 1, d, 12, 0, 0));
-  const [dy, dm, dd] = row.next_due_date.split("-").map(Number);
-  try {
-    const rule = rrulestr(ruleText, {
-      dtstart: new Date(Date.UTC(dy, dm - 1, dd, 12, 0, 0)),
-    }) as RRule;
-    const after = rule.after(afterDate, false);
-    if (after) {
-      return DateTime.fromJSDate(after, { zone: "utc" }).toISODate();
-    }
-  } catch {
-    // fall through
-  }
-  return DateTime.fromISO(row.next_due_date, { zone: "utc" }).plus({ months: 1 }).toISODate();
+  const current = rows
+    .filter((r) => effectiveInflowDate(r.next_due_date, holidays) <= today)
+    .sort((a, b) => (a.next_due_date < b.next_due_date ? 1 : -1))[0];
+  if (!current) return null;
+  return followingInflowOf(current, today, holidays);
 }
 
-function holidayYearsForHorizon(today: string, horizonDays: number): number[] {
-  const startYear = parseISODate(today).year;
-  const endYear = parseISODate(addDays(today, horizonDays)).year;
-  const years: number[] = [];
-  for (let y = startYear; y <= endYear; y += 1) {
-    years.push(y);
-  }
-  return years;
+/** The payday after a named schedule's current one. Null when the schedule is unknown. */
+async function followingInflowOfSchedule(
+  client: PoolClient,
+  tenantId: string,
+  scheduleId: string,
+  today: string,
+  holidays: Set<string> | null,
+): Promise<string | null> {
+  const result = await client.query<InflowScheduleRow>(
+    `SELECT next_due_date::text AS next_due_date, recurrence_rrule, amount::text AS amount
+     FROM scheduled_schedules
+     WHERE id = $1 AND tenant_id = $2 AND is_active = TRUE AND direction = 'inflow'`,
+    [scheduleId, tenantId],
+  );
+  const row = result.rows[0];
+  return row ? followingInflowOf(row, today, holidays) : null;
+}
+
+/** Spend rate the last cycle published, kept for future days while payday is unsettled. */
+async function loadPriorCycleBurnCents(
+  client: PoolClient,
+  tenantId: string,
+  today: string,
+): Promise<number> {
+  const result = await client.query<{ s_daily: string }>(
+    `SELECT s_daily::text
+     FROM pipeline_runs
+     WHERE tenant_id = $1 AND as_of_date < $2::date AND status = 'ok' AND s_daily IS NOT NULL
+     ORDER BY as_of_date DESC, started_at DESC
+     LIMIT 1`,
+    [tenantId, today],
+  );
+  return result.rows[0] ? toCents(result.rows[0].s_daily) : 0;
 }
 
 const SAVEPOINT = "orbit_pipeline_run";
@@ -242,6 +268,8 @@ export async function runEvaluationPipeline(
   input: PipelineInput,
 ): Promise<PipelineRunSummary> {
   const progress: { ctx: PipelineRunContext | null } = { ctx: null };
+  // One money writer per tenant at a time. Taken before the savepoint so a rollback to it keeps the lock.
+  await lockTenantForUpdate(client, input.tenantId);
   try {
     return await runEvaluationSteps(client, input, progress);
   } catch (error: unknown) {
@@ -289,18 +317,18 @@ async function runEvaluationSteps(
     trigger: input.trigger,
     asOfDate: today,
     cronBatchId: input.cronBatchId,
+    triggeredByUserId: input.trigger === "sync" ? input.userId : undefined,
   };
 
   await client.query(`SAVEPOINT ${SAVEPOINT}`);
   progress.ctx = ctx;
-  await startPipelineRun(client, {
-    runId,
-    tenantId: input.tenantId,
-    trigger: input.trigger,
-    asOfDate: today,
-    transactionId: input.transactionId,
-    cronBatchId: input.cronBatchId,
-  });
+  if (!input.runPreStarted) {
+    // Direct callers (tests) get an in-transaction row. Services start it out of band first.
+    await startPipelineRun(client, { ctx, transactionId: input.transactionId });
+  }
+
+  // Holidays for the business-day calendar. Null means the region has no calendar (fail closed).
+  const holidays = loadTenantHolidays(tenant.holiday_region, today);
 
   let envelopes = await loadEnvelopes(client, input.tenantId);
   let scheduleSource = await loadScheduleRows(client, input.tenantId);
@@ -329,6 +357,9 @@ async function runEvaluationSteps(
       today,
       envelopes,
       scheduleRows,
+      holidays,
+      advanceScheduleId:
+        input.transactionId === transactionId ? input.advanceScheduleId : undefined,
     });
     if (settled.settled) {
       settleCount += 1;
@@ -343,7 +374,7 @@ async function runEvaluationSteps(
     scheduleRows = toScheduleDueRows(scheduleSource);
   }
   await recordPipelineStep(client, ctx, "settle", {
-    centsIn: settleCount,
+    settledCount: settleCount,
     idempotencyHit,
     durationMs: Date.now() - settleStarted,
   });
@@ -352,12 +383,18 @@ async function runEvaluationSteps(
     throw new Error("Missing discretionary envelope");
   }
 
-  const peekNextPayday = await nextInflowDate(client, input.tenantId, today);
-  const settledInflowToday = await hasSettledInflowToday(client, input.tenantId, today);
+  const peekNextPayday = await nextInflowDate(client, input.tenantId, today, holidays);
+  const settledInflowToday = await hasSettledInflowToday(
+    client,
+    input.tenantId,
+    today,
+    holidays,
+  );
 
   // Midnight-only cycle boundary (module 8): sweep on the last day, then advance dues.
   // Never advance unsettled payday inflows (D8).
   let sweepIncomplete = false;
+  let sweepSkippedNoSink = false;
   if (input.trigger === "midnight") {
     if (isCycleEndDay(today, peekNextPayday)) {
       logger.info("Pipeline cycle end", {
@@ -374,6 +411,7 @@ async function runEvaluationSteps(
         envelopes,
       });
       sweepIncomplete = sweep.incomplete;
+      sweepSkippedNoSink = sweep.skippedNoSink;
       envelopes = await loadEnvelopes(client, input.tenantId);
       discretionary = envelopes.find((e) => e.tierCategory === "discretionary");
       if (!discretionary) {
@@ -392,6 +430,7 @@ async function runEvaluationSteps(
       input.tenantId,
       today,
       settledInflowToday,
+      holidays,
     );
     if (advanced.outflows + advanced.inflows > 0) {
       scheduleSource = await loadScheduleRows(client, input.tenantId);
@@ -404,7 +443,7 @@ async function runEvaluationSteps(
     });
   }
 
-  let nextPayday = await nextInflowDate(client, input.tenantId, today);
+  let nextPayday = await nextInflowDate(client, input.tenantId, today, holidays);
 
   // D8 — payday today and not yet settled → N_p = 1; after settle, schedules already advanced.
   const inflowIsTodayAndUnsettled = nextPayday === today && !settledInflowToday;
@@ -429,7 +468,8 @@ async function runEvaluationSteps(
   // Payday morning still funds bills due today through the following payday (exclusive).
   let dueWindowEnd = nextPayday;
   if (inflowIsTodayAndUnsettled) {
-    dueWindowEnd = (await peekFollowingInflow(client, input.tenantId, today)) ?? nextPayday;
+    dueWindowEnd =
+      (await peekFollowingInflow(client, input.tenantId, today, holidays)) ?? nextPayday;
   }
   const oUnfundedCents = computeUnfundedCents({
     envelopes,
@@ -469,14 +509,10 @@ async function runEvaluationSteps(
   );
   const c0Cents = toCents(cashRes.rows[0]?.total ?? "0");
 
-  let holidays: Set<string>;
-  try {
-    const years = holidayYearsForHorizon(today, 60);
-    holidays = new Set(years.flatMap((year) => [...getHolidaySet(tenant.holiday_region, year)]));
-  } catch (error: unknown) {
+  if (holidays === null) {
     logger.error("Holiday calendar missing; keeping previous forecast", {
       tenantId: input.tenantId,
-      error: error instanceof Error ? error.message : "unknown",
+      holidayRegion: tenant.holiday_region,
     });
     const prior = await client.query<{ s_daily: string; s_today: string }>(
       `SELECT s_daily::text, s_today::text FROM allowance_snapshots WHERE tenant_id = $1`,
@@ -510,6 +546,8 @@ async function runEvaluationSteps(
       nP,
       sweepIncomplete,
       errorCode: "holiday_calendar_missing",
+      reasonCode: "holiday_calendar_missing",
+      cashCents: c0Cents,
     });
     return {
       runId,
@@ -521,6 +559,7 @@ async function runEvaluationSteps(
       forecastStale: true,
       cutsApplied: 0,
       sweepIncomplete,
+      reasonCode: "holiday_calendar_missing",
     };
   }
 
@@ -531,7 +570,15 @@ async function runEvaluationSteps(
   });
 
   const daysAfterToday = nP === null ? 0 : Math.max(0, nP - 1);
-  const burn = rate
+  // Payday morning, before the deposit settles: N_p = 1 makes the pool look like one day of
+  // spending. Do not rebase future days on it. Keep the last cycle's rate until settle.
+  const holdPriorBurn = inflowIsTodayAndUnsettled;
+  const priorCycleBurnCents = holdPriorBurn
+    ? await loadPriorCycleBurnCents(client, input.tenantId, today)
+    : 0;
+  const burn = holdPriorBurn
+    ? priorCycleBurnCents
+    : rate
     ? futureBurnCents({
         sDailyCents: rate.sDailyCents,
         sTodayCents: rate.sTodayCents,
@@ -622,9 +669,11 @@ async function runEvaluationSteps(
     gapCents = mitigation.alert?.gapCents ?? null;
     if (mitigation.cutsApplied > 0) {
       mitigated = true;
-      publishedDaily = mitigation.rateCents;
-      if (rate.sTodayCents >= 0) {
-        publishedToday = mitigation.rateCents + rate.remainderCents - eDiscActualCents;
+      if (!holdPriorBurn) {
+        publishedDaily = mitigation.rateCents;
+        if (rate.sTodayCents >= 0) {
+          publishedToday = mitigation.rateCents + rate.remainderCents - eDiscActualCents;
+        }
       }
       await recordPipelineStep(client, ctx, "cut", {
         cutsApplied: mitigation.cutsApplied,
@@ -665,7 +714,7 @@ async function runEvaluationSteps(
   }
 
   // Refresh next payday after any in-settle advance for snapshot display.
-  nextPayday = await nextInflowDate(client, input.tenantId, today);
+  nextPayday = await nextInflowDate(client, input.tenantId, today, holidays);
 
   if (rate && nP !== null) {
     await client.query(
@@ -693,6 +742,25 @@ async function runEvaluationSteps(
         nextPayday,
       ],
     );
+  } else {
+    // No future inflow (D8): publish no rate. Zero out the hero so yesterday's number does not
+    // linger, and leave N_p empty rather than invent a day count.
+    await client.query(
+      `INSERT INTO allowance_snapshots
+         (tenant_id, as_of_date, s_daily, s_today, n_p, o_unfunded, mitigated, next_payday, forecast_stale, computed_at)
+       VALUES ($1, $2::date, 0.00, 0.00, NULL, $3, FALSE, $4::date, FALSE, NOW())
+       ON CONFLICT (tenant_id) DO UPDATE SET
+         as_of_date = EXCLUDED.as_of_date,
+         s_daily = 0.00,
+         s_today = 0.00,
+         n_p = NULL,
+         o_unfunded = EXCLUDED.o_unfunded,
+         mitigated = FALSE,
+         next_payday = EXCLUDED.next_payday,
+         forecast_stale = FALSE,
+         computed_at = NOW()`,
+      [input.tenantId, today, fromCents(oUnfundedCents), nextPayday],
+    );
   }
 
   await recordPipelineStep(client, ctx, "publish", {
@@ -708,6 +776,7 @@ async function runEvaluationSteps(
     durationMs: Date.now() - runStarted,
   });
 
+  const reasonCode = pickReasonCode({ nP, cutsApplied, breachDate, sweepSkippedNoSink });
   await finishPipelineRun(client, {
     runId,
     status: "ok",
@@ -718,6 +787,8 @@ async function runEvaluationSteps(
     sTodayCents: rate ? publishedToday : null,
     nP,
     sweepIncomplete,
+    reasonCode,
+    cashCents: c0Cents,
   });
 
   return {
@@ -730,6 +801,7 @@ async function runEvaluationSteps(
     forecastStale: false,
     cutsApplied,
     sweepIncomplete,
+    reasonCode,
   };
 }
 
@@ -741,9 +813,11 @@ async function settleTransaction(
     today: string;
     envelopes: EnvelopeState[];
     scheduleRows: ScheduleDueRow[];
+    holidays: Set<string> | null;
+    advanceScheduleId?: string;
   },
 ): Promise<{ settled: boolean; idempotencyHit: boolean; envelopes: EnvelopeState[] }> {
-  const { tenantId, transactionId, today, scheduleRows } = input;
+  const { tenantId, transactionId, today, scheduleRows, holidays, advanceScheduleId } = input;
   // Balances change in memory so the caller reloads once after the loop, not per transaction.
   const balanceDelta = new Map<string, number>();
   const addDelta = (envelopeId: string, cents: number): void => {
@@ -780,9 +854,15 @@ async function settleTransaction(
   const amountCents = toCents(txn.amount);
 
   if (amountCents > 0) {
-    let dueWindowEnd = await nextInflowDate(client, tenantId, today);
-    if (dueWindowEnd === today || dueWindowEnd === null) {
-      dueWindowEnd = await peekFollowingInflow(client, tenantId, today);
+    // A named payday funds bills up to the one after it, whether it lands early, today, or late.
+    let dueWindowEnd = advanceScheduleId
+      ? await followingInflowOfSchedule(client, tenantId, advanceScheduleId, today, holidays)
+      : null;
+    if (dueWindowEnd === null) {
+      dueWindowEnd = await nextInflowDate(client, tenantId, today, holidays);
+      if (dueWindowEnd === today || dueWindowEnd === null) {
+        dueWindowEnd = await peekFollowingInflow(client, tenantId, today, holidays);
+      }
     }
 
     const dueAmountByEnvelopeId = buildDueAmountByEnvelopeId({
@@ -851,17 +931,19 @@ async function settleTransaction(
     [transactionId, tenantId],
   );
 
-  // D8 — only a credit that matches an inflow due today advances the payday.
-  if (amountCents > 0 && txn.booked_date === today) {
-    const matching = await client.query<{ id: string }>(
-      `SELECT id FROM scheduled_schedules
-       WHERE tenant_id = $1 AND is_active = TRUE AND direction = 'inflow'
-         AND next_due_date = $2::date AND amount = $3
-       LIMIT 1`,
-      [tenantId, today, fromCents(amountCents)],
+  if (advanceScheduleId) {
+    // The person named the schedule this money pays. Advance exactly that one, once.
+    await advanceScheduleById(client, tenantId, advanceScheduleId, today);
+  } else if (amountCents > 0 && txn.booked_date === today) {
+    // D8 — only a credit within a cent of an inflow due today advances the payday.
+    const schedules = await loadInflowSchedules(client, tenantId);
+    const matches = schedules.some(
+      (s) =>
+        effectiveInflowDate(s.next_due_date, holidays) === today &&
+        matchesScheduledAmount(amountCents, toCents(s.amount)),
     );
-    if (matching.rows.length > 0) {
-      await advanceInflowsDueToday(client, tenantId, today);
+    if (matches) {
+      await advanceInflowsDueToday(client, tenantId, today, holidays);
     }
   }
 

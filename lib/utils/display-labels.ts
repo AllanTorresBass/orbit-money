@@ -54,3 +54,31 @@ export function tenantTypeLabel(type: TenantType): string | null {
       return null;
   }
 }
+
+/** How a bill reads on Plan: covered, partly covered, or no ceiling to compare against. */
+export interface BillSetAsideLabel {
+  text: string;
+  /** True when the ceiling is covered. Covered bills read in secondary text, short ones in ink. */
+  covered: boolean;
+}
+
+/**
+ * "Set aside $1,200" once the bill's ceiling is covered; "$40 of $1,200 set aside" while it
+ * is still filling (docs/ui/02-visual-design.md). A bill with no ceiling shows its balance.
+ */
+export function billSetAsideLabel(
+  balanceCents: number,
+  ceilingCents: number | null,
+  format: (cents: number) => string,
+): BillSetAsideLabel {
+  if (ceilingCents === null || ceilingCents <= 0) {
+    return { text: format(balanceCents), covered: false };
+  }
+  if (balanceCents >= ceilingCents) {
+    return { text: `Set aside ${format(ceilingCents)}`, covered: true };
+  }
+  return {
+    text: `${format(Math.max(0, balanceCents))} of ${format(ceilingCents)} set aside`,
+    covered: false,
+  };
+}

@@ -1,7 +1,8 @@
 export interface AllowanceDto {
   sTodayCents: number;
   sDailyCents: number;
-  nP: number;
+  /** Days until the next inflow. Null when no future inflow is scheduled. */
+  nP: number | null;
   nextPayday: string | null;
   mitigated: boolean;
   asOfDate: string;

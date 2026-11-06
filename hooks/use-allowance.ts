@@ -6,8 +6,10 @@ import { api } from "@/lib/api/client";
 import { enqueuePurchase } from "@/lib/offline/purchase-queue";
 import { invalidateMoneyQueries } from "@/lib/query-invalidation";
 import { queryKeys } from "@/lib/query-keys";
-import { applyQueuedPurchase } from "@/lib/utils/queued-purchase";
+import { applyQueuedPurchase, isNetworkFailure } from "@/lib/utils/queued-purchase";
 import type { AllowanceDto } from "@/types/allowance/allowance.types";
+import type { MeDto } from "@/types/me/me.types";
+import type { OfflineQueueScope } from "@/types/transactions/transaction.types";
 
 export function useAllowance() {
   return useQuery({
@@ -26,16 +28,28 @@ export function useMe() {
 export function useCreatePurchase() {
   const queryClient = useQueryClient();
   const { handleCrudError, notifySuccess } = useGlobalErrorHandler();
+
+  /** The household and person this device is signed in as. Null until Me has loaded. */
+  function currentScope(): OfflineQueueScope | null {
+    const me = queryClient.getQueryData<MeDto>(queryKeys.me.all);
+    return me ? { tenantId: me.tenantId, userId: me.userId } : null;
+  }
+
   return useMutation({
     mutationFn: async (input: { amountCents: number; idempotencyKey?: string; memo?: string }) => {
       const idempotencyKey = input.idempotencyKey ?? crypto.randomUUID();
-      if (typeof navigator !== "undefined" && !navigator.onLine) {
-        enqueuePurchase({
+      const scope = currentScope();
+      const saveOnDevice = (): { queued: true } => {
+        if (!scope) throw new Error("Cannot queue without a household");
+        enqueuePurchase(scope, {
           amountCents: input.amountCents,
           idempotencyKey,
           memo: input.memo,
         });
         return { queued: true as const };
+      };
+      if (typeof navigator !== "undefined" && !navigator.onLine) {
+        return saveOnDevice();
       }
       try {
         await api.createPurchase({
@@ -45,16 +59,8 @@ export function useCreatePurchase() {
         });
         return { queued: false as const };
       } catch (error: unknown) {
-        const message = error instanceof Error ? error.message : "";
-        const looksNetwork =
-          message === "Failed to fetch" || message.toLowerCase().includes("network");
-        if (looksNetwork) {
-          enqueuePurchase({
-            amountCents: input.amountCents,
-            idempotencyKey,
-            memo: input.memo,
-          });
-          return { queued: true as const };
+        if (scope && isNetworkFailure(error)) {
+          return saveOnDevice();
         }
         throw error;
       }

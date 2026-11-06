@@ -4,12 +4,18 @@ import Link from "next/link";
 import { useState } from "react";
 import { InlineBanner } from "@/components/shell/inline-banner";
 import { TenantPicker } from "@/components/shell/tenant-picker";
+import { FirstEveningBanner } from "@/components/today/first-evening-banner";
 import { PurchaseSheet } from "@/components/today/purchase-sheet";
+import { RecordPaydaySheet } from "@/components/today/record-payday-sheet";
 import { TodaySkeleton } from "@/components/today/today-skeleton";
-import { useAllowance, useMe } from "@/hooks/use-allowance";
+import { useAllowance, useMe, usePlan } from "@/hooks/use-allowance";
 import { useOnlineStatus } from "@/hooks/use-online-status";
-import { useQueuedPurchaseCount } from "@/hooks/use-queued-purchase-count";
+import {
+  usePoisonPurchaseCount,
+  useQueuedPurchaseCount,
+} from "@/hooks/use-queued-purchase-count";
 import { isApiError } from "@/lib/api/api-error";
+import { discardPoisonPurchases } from "@/lib/offline/purchase-queue";
 import { cn, formatMoney, formatShortDate } from "@/lib/utils";
 import { tenantTypeLabel } from "@/lib/utils/display-labels";
 import { fetchErrorMessage } from "@/lib/utils/handle-fetch-error";
@@ -24,6 +30,12 @@ function queuedPurchaseSentence(count: number): string {
     : `${count} purchases are saved on this phone. They send when you're back online.`;
 }
 
+function poisonPurchaseSentence(count: number): string {
+  return count === 1
+    ? "1 saved purchase could not be sent. Add it again if it still matters."
+    : `${count} saved purchases could not be sent. Add them again if they still matter.`;
+}
+
 /** Shown while offline with something saved on this phone. */
 function offlinePurchaseSentence(count: number): string {
   return count === 1
@@ -35,8 +47,12 @@ export function TodayScreen({ className }: TodayScreenProps) {
   const me = useMe();
   const allowance = useAllowance();
   const online = useOnlineStatus();
-  const queuedPurchases = useQueuedPurchaseCount();
+  const plan = usePlan();
+  const queueScope = me.data ? { tenantId: me.data.tenantId, userId: me.data.userId } : null;
+  const queuedPurchases = useQueuedPurchaseCount(queueScope);
+  const poisonPurchases = usePoisonPurchaseCount(queueScope);
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [paydaySheetOpen, setPaydaySheetOpen] = useState(false);
 
   if (me.isLoading || allowance.isLoading) {
     return <TodaySkeleton className={className} />;
@@ -91,6 +107,13 @@ export function TodayScreen({ className }: TodayScreenProps) {
       ? "text-[var(--orbit-ink)]"
       : "text-[var(--orbit-fine)]";
 
+  // Owners and admins settle paydays. Due today or overdue means the deposit is still to record.
+  const canConfigure = me.data?.role === "owner" || me.data?.role === "admin";
+  const payday = plan.data?.payday ?? null;
+  const paydayDue = canConfigure && payday !== null && payday.date <= data.asOfDate;
+  // First evening: no bills yet. The banner is only for people who can add one.
+  const showFirstEvening = canConfigure && plan.data !== undefined && plan.data.bills.length === 0;
+
   const spendingBelowZero = data.spendingBalanceCents < 0;
   const firstRun = !data.hasPurchaseHistory;
   const bannerDate = data.breachDate ?? data.warningDate;
@@ -121,6 +144,21 @@ export function TodayScreen({ className }: TodayScreenProps) {
           </InlineBanner>
         ) : queuedPurchases > 0 ? (
           <InlineBanner>{queuedPurchaseSentence(queuedPurchases)}</InlineBanner>
+        ) : null}
+
+        {poisonPurchases > 0 && queueScope ? (
+          <div className="flex items-start justify-between gap-3">
+            <InlineBanner tone="short" className="flex-1">
+              {poisonPurchaseSentence(poisonPurchases)}
+            </InlineBanner>
+            <button
+              type="button"
+              onClick={() => discardPoisonPurchases(queueScope)}
+              className="shrink-0 text-[15px] text-[var(--orbit-secondary)]"
+            >
+              Dismiss
+            </button>
+          </div>
         ) : null}
 
         {online && data.forecastStale ? (
@@ -177,7 +215,22 @@ export function TodayScreen({ className }: TodayScreenProps) {
         </button>
       ) : null}
 
+      {paydayDue && payday ? (
+        <button
+          type="button"
+          onClick={() => setPaydaySheetOpen(true)}
+          className="mt-4 w-full border border-[var(--orbit-ink)] py-3 text-[17px] text-[var(--orbit-ink)]"
+        >
+          Record payday
+        </button>
+      ) : null}
+
+      {showFirstEvening && me.data ? <FirstEveningBanner tenantId={me.data.tenantId} /> : null}
+
       <PurchaseSheet open={sheetOpen} onClose={() => setSheetOpen(false)} />
+      {paydaySheetOpen && payday ? (
+        <RecordPaydaySheet payday={payday} onClose={() => setPaydaySheetOpen(false)} />
+      ) : null}
     </div>
   );
 }
