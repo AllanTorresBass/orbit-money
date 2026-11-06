@@ -8,6 +8,7 @@ import { isMagicLinkUiEnabled } from "@/lib/auth/magic-link";
 import { setActorUserId, setTenantId } from "@/lib/dev/actor-store";
 import { HARBOR } from "@/lib/dev/harbor-ids";
 import { OrbitMark } from "@/components/brand/orbit-mark";
+import { ThemeToggleButton } from "@/components/shell/theme-toggle";
 import { InlineBanner } from "@/components/shell/inline-banner";
 
 function SignInForm() {
@@ -82,7 +83,10 @@ function SignInForm() {
   return (
     <div className="mx-auto flex min-h-screen max-w-md flex-col justify-center px-5 py-16">
       <div className="orbit-reveal" style={{ "--i": 0 } as React.CSSProperties}>
-        <OrbitMark wordmark />
+        <div className="flex items-center justify-between">
+          <OrbitMark wordmark />
+          <ThemeToggleButton />
+        </div>
         <h1 className="mt-10 text-balance text-[34px] font-semibold leading-[1.1] tracking-tight text-[var(--orbit-ink)]">
           Know what you can spend today.
         </h1>

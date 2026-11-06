@@ -23,22 +23,22 @@
   color-scheme: light;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --orbit-paper: #070b16;
-    --orbit-surface: #0f1626;
-    --orbit-ink: #eef1fa;
-    --orbit-secondary: #98a1b8;
-    --orbit-line: #1d2640;
-    --orbit-brand: #6f90ff;
-    --orbit-brand-ink: #060a18;
-    --orbit-brand-soft: #14204a;
-    --orbit-fine: #4fe0a8;
-    --orbit-low: #f0b35a;
-    --orbit-short: #ff8f80;
-    --orbit-shadow: 0 1px 0 rgb(255 255 255 / 0.03) inset, 0 12px 32px -16px rgb(0 0 0 / 0.7);
-    color-scheme: dark;
-  }
+/* Dark is driven by the `dark` class that next-themes sets on <html>
+   (system preference by default, or the user's explicit choice). */
+:root.dark {
+  --orbit-paper: #070b16;
+  --orbit-surface: #0f1626;
+  --orbit-ink: #eef1fa;
+  --orbit-secondary: #98a1b8;
+  --orbit-line: #1d2640;
+  --orbit-brand: #6f90ff;
+  --orbit-brand-ink: #060a18;
+  --orbit-brand-soft: #14204a;
+  --orbit-fine: #4fe0a8;
+  --orbit-low: #f0b35a;
+  --orbit-short: #ff8f80;
+  --orbit-shadow: 0 1px 0 rgb(255 255 255 / 0.03) inset, 0 12px 32px -16px rgb(0 0 0 / 0.7);
+  color-scheme: dark;
 }
 
 @theme inline {

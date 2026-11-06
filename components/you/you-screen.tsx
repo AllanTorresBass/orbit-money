@@ -5,6 +5,7 @@ import Link from "next/link";
 import { signOut } from "next-auth/react";
 import { ActorSwitcher } from "@/components/shell/actor-switcher";
 import { TenantPicker } from "@/components/shell/tenant-picker";
+import { ThemeToggle } from "@/components/shell/theme-toggle";
 import { ActivitySection } from "@/components/you/activity-section";
 import { BankSection } from "@/components/you/bank-section";
 import { KeepAtLeastSection } from "@/components/you/keep-at-least-section";
@@ -93,6 +94,13 @@ export function YouScreen({ className }: YouScreenProps) {
           </p>
         </section>
       ) : null}
+
+      <section className="mt-10" aria-labelledby="you-appearance">
+        <h2 id="you-appearance" className="text-[15px] font-medium text-[var(--orbit-ink)]">
+          Appearance
+        </h2>
+        <ThemeToggle className="mt-3" />
+      </section>
 
       <section className="mt-12 border-t border-[var(--orbit-line)] pt-6">
         {isClientDevHeaderAuthEnabled() ? (

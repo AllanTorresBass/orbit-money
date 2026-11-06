@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { ChevronRight, Plus } from "lucide-react";
 import { OrbitMark } from "@/components/brand/orbit-mark";
+import { ThemeToggleButton } from "@/components/shell/theme-toggle";
 import { AnimatedMoney } from "@/components/shell/animated-money";
 import { InlineBanner } from "@/components/shell/inline-banner";
 import { TenantPicker } from "@/components/shell/tenant-picker";
@@ -59,27 +60,29 @@ function TodayHeader({
   typeLabel: string | null;
 }) {
   return (
-    <Link
-      href={href}
-      className="orbit-reveal group flex items-center justify-between gap-4 rounded-2xl py-1"
+    <div
+      className="orbit-reveal flex items-center justify-between gap-3"
       style={{ "--i": 0 } as React.CSSProperties}
     >
-      <div className="flex min-w-0 items-center gap-3">
-        <OrbitMark />
-        <div className="min-w-0">
-          <h1 className="truncate text-[19px] font-semibold leading-tight tracking-tight text-[var(--orbit-ink)]">
-            {name}
-          </h1>
-          {typeLabel ? (
-            <p className="text-[13px] text-[var(--orbit-secondary)]">{typeLabel}</p>
-          ) : null}
+      <Link href={href} className="group flex min-w-0 flex-1 items-center justify-between gap-4 rounded-2xl py-1">
+        <div className="flex min-w-0 items-center gap-3">
+          <OrbitMark />
+          <div className="min-w-0">
+            <h1 className="truncate text-[19px] font-semibold leading-tight tracking-tight text-[var(--orbit-ink)]">
+              {name}
+            </h1>
+            {typeLabel ? (
+              <p className="text-[13px] text-[var(--orbit-secondary)]">{typeLabel}</p>
+            ) : null}
+          </div>
         </div>
-      </div>
-      <ChevronRight
-        className="size-5 shrink-0 text-[var(--orbit-secondary)] transition-transform duration-200 group-hover:translate-x-0.5"
-        aria-hidden="true"
-      />
-    </Link>
+        <ChevronRight
+          className="size-5 shrink-0 text-[var(--orbit-secondary)] transition-transform duration-200 group-hover:translate-x-0.5"
+          aria-hidden="true"
+        />
+      </Link>
+      <ThemeToggleButton className="shrink-0" />
+    </div>
   );
 }
 
