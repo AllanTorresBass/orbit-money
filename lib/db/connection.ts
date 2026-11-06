@@ -1,5 +1,6 @@
 import { Pool, type PoolClient, type QueryResult, type QueryResultRow } from "pg";
 import { getEnv } from "@/lib/env";
+import { isServiceError } from "@/lib/errors/service-errors";
 import { logger } from "@/lib/logger";
 
 let pooled: Pool | null = null;
@@ -67,9 +68,13 @@ export async function withTransaction<T>(
     return result;
   } catch (error: unknown) {
     await client.query("ROLLBACK");
-    logger.error("Transaction rolled back", {
-      error: error instanceof Error ? error.message : "unknown",
-    });
+    const meta = { error: error instanceof Error ? error.message : "unknown" };
+    if (isServiceError(error) && error.status < 500) {
+      // A deliberate 4xx rejection (conflict, not found, bad input) is not a fault.
+      logger.info("Transaction rolled back (rejected)", { ...meta, status: error.status });
+    } else {
+      logger.error("Transaction rolled back", meta);
+    }
     throw error;
   } finally {
     client.release();

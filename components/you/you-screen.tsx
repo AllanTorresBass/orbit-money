@@ -64,6 +64,7 @@ export function YouScreen({ className }: YouScreenProps) {
 
       {me.data && me.data.tenants.length > 1 ? (
         <TenantPicker
+          id="households"
           variant="inline"
           tenants={me.data.tenants}
           currentTenantId={me.data.tenantId}

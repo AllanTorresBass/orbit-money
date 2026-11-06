@@ -3,6 +3,12 @@ import { DateTime } from "luxon";
 import { RRule, rrulestr } from "rrule";
 import { addDays } from "@/lib/calendar/dates";
 import { effectiveInflowDate } from "@/lib/calendar/inflow-dates";
+import {
+  byMonthDayFromRrule,
+  clampDayInMonth,
+  monthEndMonthlyDay,
+  nextClampedMonthlyDate,
+} from "@/lib/calendar/month-clamp";
 import { sweepDiscretionaryAtCycleEnd } from "@/lib/engines/waterfall";
 import { logger } from "@/lib/logger";
 import { fromCents, toCents } from "@/lib/money/numeric";
@@ -415,15 +421,37 @@ export function nextOccurrenceAfter(
     ? recurrenceRrule.trim()
     : `RRULE:${recurrenceRrule.trim()}`;
 
+  const byMonthDay = byMonthDayFromRrule(ruleText);
+  const monthEndDay = monthEndMonthlyDay(ruleText);
+
+  // D11 — month-end bills clamp into short months instead of skipping them (rrule skips Feb).
+  if (monthEndDay !== null) {
+    if (currentDue > today) {
+      const [y, m] = currentDue.split("-").map(Number);
+      return clampDayInMonth(y, m, monthEndDay) || currentDue;
+    }
+    let cursor = currentDue;
+    for (let i = 0; i < 24; i += 1) {
+      const next = nextClampedMonthlyDate(cursor, monthEndDay);
+      if (!next) break;
+      if (next > today) return next;
+      if (next <= cursor) break;
+      cursor = next;
+    }
+    return null;
+  }
+
   try {
     const rule = rrulestr(ruleText, { dtstart: toRRuleDate(currentDue) }) as RRule;
     const after = rule.after(toRRuleDate(today), false);
     if (after) return toIsoDate(after);
-  } catch {
-    // fall through to monthly bump
+  } catch (error: unknown) {
+    logger.info("RRULE parse fell back to monthly clamp", {
+      error: error instanceof Error ? error.message : "unknown",
+    });
   }
 
-  const fallback = DateTime.fromISO(currentDue, { zone: "utc" }).plus({ months: 1 }).toISODate();
+  const fallback = nextClampedMonthlyDate(currentDue, byMonthDay ?? undefined);
   return fallback && fallback > today ? fallback : null;
 }
 

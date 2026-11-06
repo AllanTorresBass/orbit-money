@@ -40,3 +40,20 @@ export function useRecordOutflow() {
     },
   });
 }
+
+/** Undo a purchase or a bill payment. Owner and admin only; the server enforces it. */
+export function useVoidTransaction() {
+  const queryClient = useQueryClient();
+  const { handleCrudError, notifySuccess } = useGlobalErrorHandler();
+  return useMutation({
+    mutationFn: (transactionId: string) => api.voidTransaction(transactionId),
+    onSuccess: async () => {
+      notifySuccess("Purchase undone");
+      await invalidateMoneyQueries(queryClient);
+      await queryClient.invalidateQueries({ queryKey: queryKeys.pipeline.all });
+    },
+    onError: (error: unknown) => {
+      handleCrudError(error, { action: "undo that purchase" });
+    },
+  });
+}

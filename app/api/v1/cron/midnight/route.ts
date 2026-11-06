@@ -10,10 +10,13 @@ import {
   startCronBatch,
 } from "@/lib/pipeline/cron-batch";
 import { runEvaluationPipeline } from "@/lib/pipeline/run-evaluation";
+import { decideForceAll, FORCE_ALL_HEADER } from "@/lib/pipeline/force-all";
+import { recordMidnightOutcome } from "@/lib/pipeline/midnight-failures";
 import {
   CATCH_UP_LIMIT,
   loadTenantSnapshotRows,
-  selectStaleTenantIds,
+  selectCatchUpTenants,
+  selectHourZeroSkippedTenantIds,
 } from "@/lib/pipeline/stale-tenants";
 import { closeAbandonedPipelineRuns, prunePipelineRuns } from "@/lib/pipeline/telemetry";
 import { withPipelineRun } from "@/lib/pipeline/with-run";
@@ -32,15 +35,22 @@ const ABANDONED_RUN_MINUTES = 60;
 /** A batch still unfinished after this long belongs to a tick that crashed or timed out. */
 const STALE_BATCH_MINUTES = 120;
 const RATE_LIMIT_RETENTION_SECONDS = 24 * 60 * 60;
+/** Stop starting tenants this long before `maxDuration`, so the tick can close its batch. */
+const DEADLINE_HEADROOM_MS = 10_000;
 
 interface TenantResult {
   tenantId: string;
   ok: boolean;
+  /** Not due this tick. */
   skipped?: boolean;
+  /** Due, but the deadline arrived first. The next tick's catch-up picks it up. */
+  deferred?: boolean;
   runId?: string;
 }
 
 async function runMidnight(request: NextRequest): Promise<NextResponse> {
+  const tickStarted = Date.now();
+  const deadline = tickStarted + maxDuration * 1000 - DEADLINE_HEADROOM_MS;
   try {
     const secret = getEnv().CRON_SECRET;
     const authHeader = request.headers.get("authorization");
@@ -54,7 +64,18 @@ async function runMidnight(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const forceAll = request.nextUrl.searchParams.get("all") === "1";
+    const forceDecision = decideForceAll({
+      allParam: request.nextUrl.searchParams.get("all"),
+      headerValue: request.headers.get(FORCE_ALL_HEADER),
+    });
+    if (forceDecision === "rejected") {
+      logger.warn("Midnight force-all rejected: confirmation header missing");
+      return NextResponse.json(
+        { error: `Forcing every tenant also needs the ${FORCE_ALL_HEADER}: 1 header` },
+        { status: 403 },
+      );
+    }
+    const forceAll = forceDecision === "forced";
     const now = new Date();
 
     // Close ticks that never finished, so Activity does not show them as running forever.
@@ -79,19 +100,43 @@ async function runMidnight(request: NextRequest): Promise<NextResponse> {
         for (const id of ids) dueTenantIds.add(id);
       }
     }
+    const hourZeroCount = dueTenantIds.size;
+
+    // A zone whose clock skipped 00:00 today never hits hour 0. Its tenants run once the gap
+    // has passed, ahead of the capped catch-up set.
+    const dstSkippedIds = forceAll
+      ? []
+      : selectHourZeroSkippedTenantIds(tenants, now, dueTenantIds);
+    for (const id of dstSkippedIds) dueTenantIds.add(id);
 
     // Catch-up: tenants a missed hour-0 tick left on yesterday's numbers (or none), capped.
-    const catchUpIds = forceAll
-      ? []
-      : selectStaleTenantIds(tenants, now, { limit: CATCH_UP_LIMIT, alreadyDue: dueTenantIds });
+    // Tenants whose midnight run failed three times running are rested for a day.
+    const catchUp = forceAll
+      ? { ids: [], staleBacklog: 0, poisonSkipped: 0 }
+      : selectCatchUpTenants(tenants, now, { limit: CATCH_UP_LIMIT, alreadyDue: dueTenantIds });
+    const catchUpIds = catchUp.ids;
     for (const id of catchUpIds) dueTenantIds.add(id);
+
+    // Due tenants first (hour 0, then DST gap, then catch-up), so a deadline defers the
+    // least urgent ones.
+    const dueRank = new Map<string, number>();
+    for (const id of dueTenantIds) dueRank.set(id, 0);
+    for (const id of dstSkippedIds) dueRank.set(id, 1);
+    for (const id of catchUpIds) dueRank.set(id, 2);
+    const ordered = [...tenants].sort(
+      (a, b) => (dueRank.get(a.id) ?? 3) - (dueRank.get(b.id) ?? 3),
+    );
 
     const batchMeta = {
       tenantCount: tenants.length,
       timezoneCount: byTimezone.size,
       forceAll,
+      hourZeroCount,
+      dstSkippedCount: dstSkippedIds.length,
       catchUp: catchUpIds.length > 0,
       catchUpCount: catchUpIds.length,
+      staleBacklog: catchUp.staleBacklog,
+      poisonSkipped: catchUp.poisonSkipped,
       closedStaleAtStart,
     };
     const cronBatchId = await startCronBatch({ dueCount: dueTenantIds.size, meta: batchMeta });
@@ -103,14 +148,20 @@ async function runMidnight(request: NextRequest): Promise<NextResponse> {
       timezoneCount: byTimezone.size,
       forceAll,
       catchUpCount: catchUpIds.length,
+      dstSkippedCount: dstSkippedIds.length,
+      staleBacklog: catchUp.staleBacklog,
+      poisonSkipped: catchUp.poisonSkipped,
     });
 
     const results = await mapWithConcurrency<TenantSnapshotRow, TenantResult>(
-      tenants,
+      ordered,
       TENANT_CONCURRENCY,
       async (tenant) => {
         if (!dueTenantIds.has(tenant.id)) {
           return { tenantId: tenant.id, ok: true, skipped: true };
+        }
+        if (Date.now() > deadline) {
+          return { tenantId: tenant.id, ok: true, deferred: true };
         }
         try {
           const asOfDate = todayInTimezone(tenant.timezone, now);
@@ -131,6 +182,7 @@ async function runMidnight(request: NextRequest): Promise<NextResponse> {
                 });
               }),
           );
+          await recordMidnightOutcome(tenant.id, true);
           return { tenantId: tenant.id, ok: true, runId: summary.runId };
         } catch (error: unknown) {
           logger.error("Midnight failed for tenant", {
@@ -138,6 +190,7 @@ async function runMidnight(request: NextRequest): Promise<NextResponse> {
             tenantId: tenant.id,
             error: error instanceof Error ? error.message : "unknown",
           });
+          await recordMidnightOutcome(tenant.id, false);
           return { tenantId: tenant.id, ok: false };
         }
       },
@@ -168,13 +221,26 @@ async function runMidnight(request: NextRequest): Promise<NextResponse> {
       minutes: STALE_BATCH_MINUTES,
       excludeId: cronBatchId,
     });
-    const okCount = results.filter((r) => r.ok && !r.skipped).length;
+    const okCount = results.filter((r) => r.ok && !r.skipped && !r.deferred).length;
     const errorCount = results.filter((r) => !r.ok).length;
     const skippedCount = results.filter((r) => r.skipped).length;
+    const unprocessedDue = results.filter((r) => r.deferred).length;
+    const deadlineHit = unprocessedDue > 0;
+    const durationMs = Date.now() - tickStarted;
     await finishCronBatch(
       cronBatchId,
       { dueCount: dueTenantIds.size, okCount, errorCount, skippedCount },
-      { pruned, closedAbandoned: closed, closedStaleAtEnd, catchUpCount: catchUpIds.length },
+      {
+        pruned,
+        closedAbandoned: closed,
+        closedStaleAtEnd,
+        catchUpCount: catchUpIds.length,
+        durationMs,
+        unprocessedDue,
+        staleBacklog: catchUp.staleBacklog,
+        deadlineHit,
+        poisonSkipped: catchUp.poisonSkipped,
+      },
     );
     logger.info("Midnight cron done", {
       cronBatchId,
@@ -184,6 +250,11 @@ async function runMidnight(request: NextRequest): Promise<NextResponse> {
       skippedCount,
       pruned,
       closed,
+      durationMs,
+      unprocessedDue,
+      staleBacklog: catchUp.staleBacklog,
+      deadlineHit,
+      poisonSkipped: catchUp.poisonSkipped,
     });
 
     return NextResponse.json({
@@ -196,6 +267,12 @@ async function runMidnight(request: NextRequest): Promise<NextResponse> {
       pruned,
       closedAbandoned: closed,
       catchUpCount: catchUpIds.length,
+      dstSkippedCount: dstSkippedIds.length,
+      durationMs,
+      unprocessedDue,
+      staleBacklog: catchUp.staleBacklog,
+      deadlineHit,
+      poisonSkipped: catchUp.poisonSkipped,
       closedStaleBatches: closedStaleAtStart + closedStaleAtEnd,
       results,
     });

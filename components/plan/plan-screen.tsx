@@ -11,6 +11,7 @@ import { InlineBanner } from "@/components/shell/inline-banner";
 import { TenantPicker } from "@/components/shell/tenant-picker";
 import { useMe, usePlan } from "@/hooks/use-allowance";
 import { useProposals, useReorderEnvelopes } from "@/hooks/use-plan-mutations";
+import { useVoidTransaction } from "@/hooks/use-transactions";
 import { isApiError } from "@/lib/api/api-error";
 import { cn, formatMoney, formatShortDate } from "@/lib/utils";
 import { billSetAsideLabel } from "@/lib/utils/display-labels";
@@ -29,6 +30,7 @@ export function PlanScreen({ className }: PlanScreenProps) {
   const plan = usePlan();
   const me = useMe();
   const reorder = useReorderEnvelopes();
+  const undo = useVoidTransaction();
   const [addKind, setAddKind] = useState<EditableTier | null>(null);
   const [editing, setEditing] = useState<EditableEnvelope | null>(null);
   const [explainOpen, setExplainOpen] = useState(false);
@@ -151,7 +153,7 @@ export function PlanScreen({ className }: PlanScreenProps) {
                   {setAside(b).text}
                 </span>
               </button>
-              {canConfigure && b.scheduleId ? (
+              {canConfigure && (b.scheduleId || b.balanceCents > 0) ? (
                 <button
                   type="button"
                   aria-label={`Mark ${b.name} paid`}
@@ -291,10 +293,23 @@ export function PlanScreen({ className }: PlanScreenProps) {
               recentPurchases.map((p) => (
                 <li
                   key={p.id}
-                  className="flex justify-between border-b border-[var(--orbit-line)] py-2 text-[15px]"
+                  className="flex items-baseline justify-between gap-3 border-b border-[var(--orbit-line)] py-2 text-[15px]"
                 >
-                  <span>{p.memo ?? "Purchase"}</span>
-                  <span className="tabular-nums">{formatMoney(p.amountCents)}</span>
+                  <span className="min-w-0 truncate">{p.memo ?? "Purchase"}</span>
+                  <span className="flex shrink-0 items-baseline gap-3">
+                    <span className="tabular-nums">{formatMoney(p.amountCents)}</span>
+                    {canConfigure ? (
+                      <button
+                        type="button"
+                        aria-label={`Undo ${p.memo ?? "purchase"} ${formatMoney(p.amountCents)}`}
+                        disabled={undo.isPending}
+                        className="text-[15px] text-[var(--orbit-secondary)] disabled:opacity-60"
+                        onClick={() => undo.mutate(p.id)}
+                      >
+                        Undo
+                      </button>
+                    ) : null}
+                  </span>
                 </li>
               ))
             )}

@@ -2,9 +2,31 @@ import { NextRequest, NextResponse } from "next/server";
 import type { ZodType } from "zod";
 import { resolveSession, type AppSession } from "@/lib/auth/session";
 import { TenantSelectionRequiredError, tenantSelectionResponse } from "@/lib/auth/tenant-selection";
+import { serviceErrorResponse } from "@/lib/api/service-error-response";
 import { isServiceError } from "@/lib/errors/service-errors";
 import { logger } from "@/lib/logger";
 import type { TransactionResult } from "@/types/transactions/transaction.types";
+
+/** Map what a ledger service call threw to a response. Shared by every ledger route. */
+export function ledgerErrorResponse(error: unknown, label: string): NextResponse {
+  if (error instanceof TenantSelectionRequiredError) {
+    return tenantSelectionResponse(error);
+  }
+  if (isServiceError(error)) {
+    return serviceErrorResponse(error, label);
+  }
+  const message = error instanceof Error ? error.message : "unknown";
+  if (message === "Forbidden") {
+    logger.info(`${label} rejected`, { status: 403, reason: "forbidden" });
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+  if (message === "Amount must be positive") {
+    logger.info(`${label} rejected`, { status: 400, reason: message });
+    return NextResponse.json({ error: message }, { status: 400 });
+  }
+  logger.error(`${label} failed`, { error: message });
+  return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+}
 
 /**
  * Shared shape of the three ledger POST routes: authenticate, validate the body with Zod,
@@ -37,20 +59,6 @@ export async function handleLedgerPost<TBody>(
     const result = await options.run(session, parsed.data);
     return NextResponse.json(result, { status: 201 });
   } catch (error: unknown) {
-    if (error instanceof TenantSelectionRequiredError) {
-      return tenantSelectionResponse(error);
-    }
-    if (isServiceError(error)) {
-      return NextResponse.json({ error: error.message }, { status: error.status });
-    }
-    const message = error instanceof Error ? error.message : "unknown";
-    if (message === "Forbidden") {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
-    if (message === "Amount must be positive") {
-      return NextResponse.json({ error: message }, { status: 400 });
-    }
-    logger.error(`${options.label} failed`, { error: message });
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return ledgerErrorResponse(error, options.label);
   }
 }

@@ -8,6 +8,7 @@ import type {
   ForecastListResponse,
 } from "@/types/forecast/forecast.types";
 import type { MeDto, TenantChoice } from "@/types/me/me.types";
+import type { ClientLogBody } from "@/types/observability/client-log.types";
 import type { PipelineRunListResponse, PipelineRunResponse } from "@/types/pipeline/pipeline.types";
 import type {
   AcceptInviteBody,
@@ -19,6 +20,7 @@ import type {
   PendingInvitesResponse,
 } from "@/types/people/people.types";
 import type {
+  EnvelopeMoveResult,
   EnvelopeMutationResult,
   EnvelopePayload,
   EnvelopeRemovalResult,
@@ -127,6 +129,15 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+  voidTransaction: (id: string) =>
+    apiFetch<TransactionResult>(`/api/v1/transactions/${encodeURIComponent(id)}/void`, {
+      method: "POST",
+    }),
+  sendClientLog: (body: ClientLogBody) =>
+    apiFetch<{ ok: boolean }>("/api/v1/client-log", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
   createTenant: (body: CreateTenantBody) =>
     apiFetch<CreateTenantResult>("/api/v1/tenants", {
       method: "POST",
@@ -167,6 +178,8 @@ export const api = {
     }),
   removeEnvelope: (id: string) =>
     apiFetch<EnvelopeRemovalResult>(`/api/v1/envelopes/${id}`, { method: "DELETE" }),
+  moveEnvelopeToSpending: (id: string) =>
+    apiFetch<EnvelopeMoveResult>(`/api/v1/envelopes/${id}/move-to-spending`, { method: "POST" }),
   updateSchedule: (id: string, body: UpdateScheduleBody) =>
     apiFetch<ScheduleMutationResult>(`/api/v1/schedules/${id}`, {
       method: "PATCH",

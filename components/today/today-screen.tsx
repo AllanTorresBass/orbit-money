@@ -16,6 +16,7 @@ import {
 } from "@/hooks/use-queued-purchase-count";
 import { isApiError } from "@/lib/api/api-error";
 import { discardPoisonPurchases } from "@/lib/offline/purchase-queue";
+import { reportClientLog } from "@/lib/observability/report-client-log";
 import { cn, formatMoney, formatShortDate } from "@/lib/utils";
 import { isAllowanceFromEarlierDay, STALE_NUMBERS_SENTENCE } from "@/lib/utils/allowance-staleness";
 import { tenantTypeLabel } from "@/lib/utils/display-labels";
@@ -67,12 +68,14 @@ export function TodayScreen({ className }: TodayScreenProps) {
   }
 
   const typeLabel = me.data ? tenantTypeLabel(me.data.tenantType) : null;
+  // With more than one household, the name opens the switcher on You instead of the top.
+  const youHref = me.data && me.data.tenants.length > 1 ? "/you#households" : "/you";
 
   // Created, but the first number has not been worked out yet.
   if (me.data && isApiError(allowance.error) && allowance.error.status === 404) {
     return (
       <div className={cn("mx-auto min-h-screen max-w-md px-6 pb-28 pt-8", className)}>
-        <Link href="/you" className="block">
+        <Link href={youHref} className="block">
           <h1 className="font-[family-name:var(--font-orbit-serif)] text-[28px] text-[var(--orbit-ink)]">
             {me.data.tenantName}
           </h1>
@@ -128,7 +131,7 @@ export function TodayScreen({ className }: TodayScreenProps) {
 
   return (
     <div className={cn("mx-auto min-h-screen max-w-md px-6 pb-28 pt-8", className)}>
-      <Link href="/you" className="block">
+      <Link href={youHref} className="block">
         <h1 className="font-[family-name:var(--font-orbit-serif)] text-[28px] text-[var(--orbit-ink)]">
           {data.tenantName}
         </h1>
@@ -155,7 +158,13 @@ export function TodayScreen({ className }: TodayScreenProps) {
             </InlineBanner>
             <button
               type="button"
-              onClick={() => discardPoisonPurchases(queueScope)}
+              onClick={() => {
+                discardPoisonPurchases(queueScope);
+                reportClientLog(
+                  "info",
+                  `Dismissed ${poisonPurchases} saved purchase(s) the server turned away`,
+                );
+              }}
               className="shrink-0 text-[15px] text-[var(--orbit-secondary)]"
             >
               Dismiss
@@ -203,7 +212,7 @@ export function TodayScreen({ className }: TodayScreenProps) {
       </p>
       <p className="mt-3 text-[15px] text-[var(--orbit-secondary)]">
         {pastPace
-          ? `Tomorrow's pace will be ${formatMoney(data.sDailyCents, { alwaysCents: true })}.`
+          ? `Tomorrow's pace will be ${formatMoney(data.tomorrowBurnCents, { alwaysCents: true })}.`
           : data.nextPayday
             ? `Until payday on ${formatShortDate(data.nextPayday)}.`
             : "Add a payday to see a daily amount."}

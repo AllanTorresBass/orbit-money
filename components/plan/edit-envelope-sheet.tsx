@@ -2,8 +2,12 @@
 
 import { useState } from "react";
 import { useGlobalErrorHandler } from "@/hooks/use-global-error-handler";
-import { useRemoveEnvelope, useUpdateEnvelope } from "@/hooks/use-plan-mutations";
-import { cn, dollarsFromCents } from "@/lib/utils";
+import {
+  useMoveEnvelopeToSpending,
+  useRemoveEnvelope,
+  useUpdateEnvelope,
+} from "@/hooks/use-plan-mutations";
+import { cn, dollarsFromCents, formatMoney } from "@/lib/utils";
 import { parseDollarsToCents } from "@/lib/utils/money-input";
 import type { EditableEnvelope } from "@/types/plan/plan.types";
 
@@ -24,6 +28,7 @@ export function EditEnvelopeSheet({
 }: EditEnvelopeSheetProps) {
   const update = useUpdateEnvelope();
   const remove = useRemoveEnvelope(envelope.tierCategory);
+  const moveToSpending = useMoveEnvelopeToSpending();
   const [confirmingRemove, setConfirmingRemove] = useState(false);
   const { handleCrudError } = useGlobalErrorHandler();
   const isFixed = envelope.tierCategory === "fixed";
@@ -44,6 +49,11 @@ export function EditEnvelopeSheet({
   const [dueDate, setDueDate] = useState(envelope.nextDueDate ?? "");
 
   if (!open) return null;
+
+  // A goal that still holds money cannot be removed until that money goes somewhere. A bill
+  // with a date is funded from payday, so only a bill with no date can release its balance.
+  const canMoveToSpending =
+    mode === "save" && envelope.balanceCents > 0 && (!isFixed || envelope.nextDueDate === null);
 
   function submit(): void {
     const amountCents = parseDollarsToCents(amount);
@@ -131,11 +141,26 @@ export function EditEnvelopeSheet({
         >
           {mode === "suggest" ? "Suggest this change" : "Save"}
         </button>
+        {canMoveToSpending ? (
+          <div className="mt-6 text-[15px]">
+            <button
+              type="button"
+              disabled={moveToSpending.isPending}
+              className="text-[var(--orbit-ink)] disabled:opacity-60"
+              onClick={() => moveToSpending.mutate(envelope.id, { onSuccess: onClose })}
+            >
+              Move {formatMoney(envelope.balanceCents)} to Spending
+            </button>
+            <p className="mt-1 text-[13px] text-[var(--orbit-secondary)]">
+              Set aside money has to go somewhere before this can be removed.
+            </p>
+          </div>
+        ) : null}
         {mode === "save" ? (
           confirmingRemove ? (
             <div className="mt-4 flex flex-wrap items-baseline gap-x-4 gap-y-2 text-[15px]">
               <span className="text-[var(--orbit-secondary)]">
-                Remove {envelope.name} from your plan?
+                Remove {envelope.name}? Past paydays stay in the record.
               </span>
               <button
                 type="button"
@@ -143,7 +168,7 @@ export function EditEnvelopeSheet({
                 className="text-[var(--orbit-short)] disabled:opacity-60"
                 onClick={() => remove.mutate(envelope.id, { onSuccess: onClose })}
               >
-                Yes, remove
+                Remove
               </button>
               <button
                 type="button"
@@ -159,7 +184,7 @@ export function EditEnvelopeSheet({
               className="mt-4 text-[15px] text-[var(--orbit-secondary)]"
               onClick={() => setConfirmingRemove(true)}
             >
-              {isFixed ? "Remove this bill" : "Remove this goal"}
+              Remove
             </button>
           )
         ) : null}

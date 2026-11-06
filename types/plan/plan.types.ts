@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { isoDateSchema } from "@/types/forecast/forecast.types";
 import { entityIdSchema } from "@/types/shared/ids";
+import { amountCentsSchema, MAX_AMOUNT_CENTS } from "@/types/shared/money";
 import { isSafePaydayRrule } from "@/lib/utils/rrule-guard";
 
 export type PlanTier = "fixed" | "sinking" | "discretionary";
@@ -50,10 +51,10 @@ export interface PlanDto {
 export const envelopePayloadSchema = z.object({
   name: z.string().trim().min(1).max(100),
   tierCategory: z.enum(["fixed", "sinking"]),
-  targetCapCents: z.number().int().nonnegative().nullable(),
-  monthlyInstallmentCents: z.number().int().nonnegative().nullable(),
+  targetCapCents: z.number().int().nonnegative().max(MAX_AMOUNT_CENTS).nullable(),
+  monthlyInstallmentCents: z.number().int().nonnegative().max(MAX_AMOUNT_CENTS).nullable(),
   dueDate: isoDateSchema.nullable().optional(),
-  amountEachPaydayCents: z.number().int().positive().nullable().optional(),
+  amountEachPaydayCents: amountCentsSchema.nullable().optional(),
 });
 export type EnvelopePayload = z.infer<typeof envelopePayloadSchema>;
 
@@ -69,7 +70,7 @@ export const reorderEnvelopesBodySchema = z.object({
 /** Change a schedule's amount, next date, or repeat rule. Owner and admin only. */
 export const updateScheduleBodySchema = z
   .object({
-    amountCents: z.number().int().positive().optional(),
+    amountCents: amountCentsSchema.optional(),
     nextDueDate: isoDateSchema.optional(),
     recurrenceRrule: z
       .string()
@@ -101,6 +102,12 @@ export interface ScheduleMutationResult {
 export interface EnvelopeRemovalResult {
   id: string;
   archived: boolean;
+}
+
+/** What moving a goal's leftover money into Spending did. */
+export interface EnvelopeMoveResult {
+  id: string;
+  movedCents: number;
 }
 
 export interface EditableEnvelope {

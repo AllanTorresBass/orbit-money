@@ -195,6 +195,26 @@ If the minimum moved to another day and is still below the floor, apply that sam
 
 **Rejected.** Defaulting every tenant to `$200`. A three-iteration search. Covering the breach by reducing a fixed envelope.
 
+## D15 — An undo is a compensating row, once
+
+**Practice.** Undoing a purchase or a bill payment inserts a new ledger row: the opposite amount, on the same account and envelope, booked on the original's day, with `reverses_transaction_id` pointing at the original. It settles through the same pipeline as any row (D13), so the bank balance and the envelopes move together. The original is never edited or deleted. A partial unique index allows one reversal per original, so a second undo is a `409`. A payday, and an undo itself, cannot be undone.
+
+The pipeline does not treat an undo as a deposit. It gives back to the envelope the original took from, and returns to discretionary whatever part of a bill the envelope could not cover (the original's deficit allocation, D12). Today's discretionary spend nets the undo against the purchase, so `S_today` comes back.
+
+A bill payment's schedule is not rewound: the due date stays where the payment moved it.
+
+**Why.** A ledger that edits history cannot explain itself. A compensating row keeps both facts and keeps `S_today`'s spend honest.
+
+**Rejected.** Deleting the original row. A negative purchase that is not linked to anything. Treating the undo as an inflow and running it through the waterfall.
+
+## D16 — Leftover money in a goal moves to Spending, then the goal is removed
+
+**Practice.** A goal that still holds money cannot be removed. `POST /api/v1/envelopes/[id]/move-to-spending` moves the whole balance into the discretionary envelope in one transaction, then the person removes the goal as usual. The same move works for a bill that is off payday and still holds money. It is refused for a bill that still has an active schedule, and for the goal Spending sweeps into. It is a move between envelopes: no bank balance changes and no ledger row is written.
+
+**Why.** The money was set aside for something the person no longer wants. Spending is the only place it can go without a vendor or a bank feed, and it is the one balance the daily number reads.
+
+**Rejected.** Letting the goal be removed with its cents still inside. Moving the money into another goal the person did not choose. Making remove do the move implicitly.
+
 ## Deferred product choices
 
 These are decided later, on purpose. Do not build them inside an unrelated change.
@@ -203,4 +223,4 @@ These are decided later, on purpose. Do not build them inside an unrelated chang
 - **Billing.** The owner-only Billing section is a placeholder; Orbit charges nothing. No plans, invoices, or payment vendor yet.
 - **shadcn / design system.** Screens keep the current hand-built Orbit components. Adopting shadcn is a visual migration with its own pass.
 - **Envelope access overrides UI.** `envelope_access_overrides` exists in the schema and can narrow a role. There is no screen to edit it yet.
-- **Releasing a removed bill's leftover money.** Removing a bill that still holds money takes it off payday and clears its cap; the cents stay in the envelope. A way to spend or release them is not designed.
+- **Moving leftover money anywhere but Spending.** D16 releases a goal's or a removed bill's cents into Spending. Choosing another destination is not designed.

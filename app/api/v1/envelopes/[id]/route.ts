@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { resolveSession } from "@/lib/auth/session";
 import { TenantSelectionRequiredError, tenantSelectionResponse } from "@/lib/auth/tenant-selection";
+import { serviceErrorResponse } from "@/lib/api/service-error-response";
 import { isServiceError } from "@/lib/errors/service-errors";
 import { logger } from "@/lib/logger";
 import { planService } from "@/lib/services";
@@ -36,7 +37,7 @@ export async function PATCH(
       return tenantSelectionResponse(error);
     }
     if (isServiceError(error)) {
-      return NextResponse.json({ error: error.message }, { status: error.status });
+      return serviceErrorResponse(error, "PATCH /envelopes");
     }
     const message = error instanceof Error ? error.message : "unknown";
     if (message === "Forbidden") {
@@ -77,7 +78,7 @@ export async function DELETE(
       return tenantSelectionResponse(error);
     }
     if (isServiceError(error)) {
-      return NextResponse.json({ error: error.message }, { status: error.status });
+      return serviceErrorResponse(error, "DELETE /envelopes");
     }
     const message = error instanceof Error ? error.message : "unknown";
     if (message === "Forbidden") {

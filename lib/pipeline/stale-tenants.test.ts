@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { selectStaleTenantIds } from "@/lib/pipeline/stale-tenants";
+import {
+  isMidnightPoisoned,
+  selectCatchUpTenants,
+  selectHourZeroSkippedTenantIds,
+  selectStaleTenantIds,
+  skipsLocalHourZero,
+} from "@/lib/pipeline/stale-tenants";
 import type { TenantSnapshotRow } from "@/types/pipeline/pipeline.types";
 
 // 2026-11-05T14:00Z is Nov 5 in New York and Nov 6 in Auckland.
@@ -51,5 +57,52 @@ describe("selectStaleTenantIds", () => {
 
   it("returns nothing for a zero limit", () => {
     expect(selectStaleTenantIds([row("a", "UTC", null)], NOW, { limit: 0 })).toEqual([]);
+  });
+});
+
+describe("catch-up resilience", () => {
+  const futureRest = "2026-11-06T14:00:00Z";
+  const pastRest = "2026-11-04T14:00:00Z";
+
+  it("skips a tenant whose midnight run keeps failing until the rest ends", () => {
+    const rows: TenantSnapshotRow[] = [
+      { ...row("bad", "UTC", "2026-11-01"), midnightFailCount: 3, midnightFailUntil: futureRest },
+      { ...row("rested", "UTC", "2026-11-02"), midnightFailCount: 3, midnightFailUntil: pastRest },
+      row("ok", "UTC", "2026-11-03"),
+    ];
+    expect(isMidnightPoisoned(rows[0], NOW)).toBe(true);
+    expect(isMidnightPoisoned(rows[1], NOW)).toBe(false);
+    const picked = selectCatchUpTenants(rows, NOW);
+    expect(picked.ids).toEqual(["rested", "ok"]);
+    expect(picked.poisonSkipped).toBe(1);
+    expect(picked.staleBacklog).toBe(0);
+  });
+
+  it("reports the stale backlog beyond the limit", () => {
+    const rows = ["a", "b", "c", "d"].map((id, i) => row(id, "UTC", `2026-11-0${i + 1}`));
+    const picked = selectCatchUpTenants(rows, NOW, { limit: 3 });
+    expect(picked.ids).toEqual(["a", "b", "c"]);
+    expect(picked.staleBacklog).toBe(1);
+  });
+
+  it("finds a zone whose clock skips local midnight", () => {
+    // Cuba springs forward at 00:00 on 2026-03-08: there is no hour 0 that day.
+    const dstDay = new Date("2026-03-08T12:00:00Z");
+    expect(skipsLocalHourZero("America/Havana", dstDay)).toBe(true);
+    expect(skipsLocalHourZero("America/Havana", new Date("2026-03-09T12:00:00Z"))).toBe(false);
+    expect(skipsLocalHourZero("America/New_York", dstDay)).toBe(false);
+    expect(skipsLocalHourZero("UTC", dstDay)).toBe(false);
+  });
+
+  it("makes behind tenants in a midnight-skipping zone due, but not current or poisoned ones", () => {
+    const dstDay = new Date("2026-03-08T12:00:00Z");
+    const rows: TenantSnapshotRow[] = [
+      row("behind", "America/Havana", "2026-03-07"),
+      row("current", "America/Havana", "2026-03-08"),
+      { ...row("poisoned", "America/Havana", "2026-03-07"), midnightFailUntil: "2026-03-09T00:00:00Z" },
+      row("elsewhere", "America/New_York", "2026-03-07"),
+    ];
+    expect(selectHourZeroSkippedTenantIds(rows, dstDay)).toEqual(["behind"]);
+    expect(selectHourZeroSkippedTenantIds(rows, dstDay, new Set(["behind"]))).toEqual([]);
   });
 });

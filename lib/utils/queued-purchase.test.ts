@@ -5,6 +5,7 @@ import type { AllowanceDto } from "@/types/allowance/allowance.types";
 const base: AllowanceDto = {
   sTodayCents: 11_218,
   sDailyCents: 11_214,
+  tomorrowBurnCents: 11_214,
   nP: 14,
   nextPayday: "2026-11-18",
   mitigated: false,

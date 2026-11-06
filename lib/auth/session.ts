@@ -124,8 +124,12 @@ export async function resolveSession(): Promise<AppSession | null> {
 
   if (identity.tenantId) {
     const chosen = await loadMembership(identity.userId, identity.tenantId);
-    if (chosen || !identity.fallbackTenantId) return chosen;
-    return loadMembership(identity.userId, identity.fallbackTenantId);
+    if (chosen) return chosen;
+    // Stale cookie/JWT pin: membership gone. Fall back to remaining households.
+    if (identity.fallbackTenantId) {
+      const fallback = await loadMembership(identity.userId, identity.fallbackTenantId);
+      if (fallback) return fallback;
+    }
   }
 
   const tenants = await listActiveTenants(identity.userId);
@@ -133,6 +137,7 @@ export async function resolveSession(): Promise<AppSession | null> {
     return null;
   }
   if (tenants.length > 1) {
+    // Never silently pick; never bounce a signed-in multi-member user to /signin.
     throw new TenantSelectionRequiredError(tenants);
   }
   return loadMembership(identity.userId, tenants[0].tenantId);
