@@ -1,5 +1,6 @@
 import type { PoolClient } from "pg";
 import { canConfigure, type MembershipRole } from "@/lib/auth/permissions";
+import { lockTenantForUpdate } from "@/lib/db/advisory-lock";
 import { withTransaction } from "@/lib/db/connection";
 import { fromCents, toCents } from "@/lib/money/numeric";
 import { effectiveInflowDate, loadTenantHolidays } from "@/lib/calendar/inflow-dates";
@@ -11,6 +12,7 @@ import {
   NotFoundError,
 } from "@/lib/errors/service-errors";
 import type {
+  EnvelopeMoveResult,
   EnvelopePayload,
   EnvelopeRemovalResult,
   PlanDto,
@@ -35,9 +37,10 @@ export class PlanService extends BaseService {
         current_balance: string;
         target_cap: string | null;
         monthly_installment: string | null;
+        sweep_envelope_id: string | null;
       }>(
         `SELECT id, name, tier_category, priority_order, current_balance::text,
-                target_cap::text, monthly_installment::text
+                target_cap::text, monthly_installment::text, sweep_envelope_id
          FROM envelopes
          WHERE tenant_id = $1 AND archived_at IS NULL
          ORDER BY tier_category, priority_order`,
@@ -79,6 +82,9 @@ export class PlanService extends BaseService {
       }));
 
       const spending = mapped.find((e) => e.tierCategory === "discretionary") ?? null;
+      // Hide the sink Spending sweeps into (usually Emergency) by id, never by name.
+      const sweepSinkId =
+        envelopes.rows.find((e) => e.tier_category === "discretionary")?.sweep_envelope_id ?? null;
       const purchases = spending
         ? await client.query<{
             id: string;
@@ -89,6 +95,11 @@ export class PlanService extends BaseService {
             `SELECT id, amount::text, memo, booked_at::text
              FROM transactions
              WHERE tenant_id = $1 AND envelope_id = $2 AND amount < 0
+               AND NOT EXISTS (
+                 SELECT 1 FROM transactions r
+                 WHERE r.tenant_id = transactions.tenant_id
+                   AND r.reverses_transaction_id = transactions.id
+               )
              ORDER BY booked_at DESC
              LIMIT 5`,
             [tenantId, spending.id],
@@ -134,7 +145,9 @@ export class PlanService extends BaseService {
         payday: paydayDto,
         sweepIncomplete: sweep.rows[0]?.incomplete ?? false,
         bills: mapped.filter((e) => e.tierCategory === "fixed"),
-        goals: mapped.filter((e) => e.tierCategory === "sinking" && e.name !== "Emergency"),
+        goals: mapped.filter(
+          (e) => e.tierCategory === "sinking" && (sweepSinkId === null || e.id !== sweepSinkId),
+        ),
         spending,
         recentPurchases: purchases.rows.map((p) => ({
           id: p.id,
@@ -233,33 +246,44 @@ export class PlanService extends BaseService {
     await withTransaction(
       { tenantId: input.tenantId, userId: input.userId },
       async (client) => {
-        const existing = await client.query<{ id: string }>(
-          `SELECT id FROM envelopes
-           WHERE tenant_id = $1 AND tier_category = $2 AND archived_at IS NULL
-           ORDER BY priority_order ASC`,
+        const existing = await client.query<{ id: string; hidden: boolean }>(
+          `SELECT e.id,
+                  EXISTS (
+                    SELECT 1 FROM envelopes s
+                    WHERE s.tenant_id = e.tenant_id AND s.sweep_envelope_id = e.id
+                  ) AS hidden
+           FROM envelopes e
+           WHERE e.tenant_id = $1 AND e.tier_category = $2 AND e.archived_at IS NULL
+           ORDER BY e.priority_order ASC`,
           [input.tenantId, input.tierCategory],
         );
-        const existingIds = existing.rows.map((r) => r.id);
+        // The goal Spending sweeps into is hidden on Plan, so the screen never sends it.
+        // It keeps its slot; the visible rows fill the others in the order given.
+        const visibleIds = existing.rows.filter((r) => !r.hidden).map((r) => r.id);
         if (
-          existingIds.length !== input.orderedIds.length ||
-          [...existingIds].sort().join() !== [...input.orderedIds].sort().join()
+          visibleIds.length !== input.orderedIds.length ||
+          [...visibleIds].sort().join() !== [...input.orderedIds].sort().join()
         ) {
           throw new Error("Validation failed");
         }
+        let nextVisible = 0;
+        const fullOrder = existing.rows.map((r) =>
+          r.hidden ? r.id : input.orderedIds[nextVisible++],
+        );
 
         // Two-phase update avoids unique (tenant, tier, priority) collisions.
-        for (let i = 0; i < input.orderedIds.length; i += 1) {
+        for (let i = 0; i < fullOrder.length; i += 1) {
           await client.query(
             `UPDATE envelopes SET priority_order = $1
              WHERE id = $2 AND tenant_id = $3`,
-            [-(i + 1), input.orderedIds[i], input.tenantId],
+            [-(i + 1), fullOrder[i], input.tenantId],
           );
         }
-        for (let i = 0; i < input.orderedIds.length; i += 1) {
+        for (let i = 0; i < fullOrder.length; i += 1) {
           await client.query(
             `UPDATE envelopes SET priority_order = $1
              WHERE id = $2 AND tenant_id = $3`,
-            [i + 1, input.orderedIds[i], input.tenantId],
+            [i + 1, fullOrder[i], input.tenantId],
           );
         }
 
@@ -372,7 +396,8 @@ export class PlanService extends BaseService {
    * - Its schedules turn off, so nothing is funded or projected for it any more.
    * - With nothing set aside, the envelope is archived and leaves the Plan.
    * - A bill that still holds money stays (schedules off only) so no cents vanish.
-   * - A goal that still holds money cannot be removed: it has no schedule to turn off.
+   * - A goal that still holds money cannot be removed: move it to Spending first
+   *   (`moveEnvelopeToSpending`), then remove it.
    * Spending is never removable, and neither is the goal Spending sweeps into.
    */
   async removeEnvelope(input: {
@@ -410,7 +435,7 @@ export class PlanService extends BaseService {
 
       const balanceCents = toCents(row.current_balance);
       if (balanceCents > 0 && row.tier_category === "sinking") {
-        throw new ConflictError("This goal still has money set aside. Spend or lower it first.");
+        throw new ConflictError("This goal still has money set aside. Move it to Spending first.");
       }
 
       await client.query(
@@ -544,6 +569,8 @@ export class PlanService extends BaseService {
                 input.tenantId,
               ],
             );
+            // D3: the schedule is the due amount. Keep it in step with what was accepted.
+            await this.syncBillScheduleToPayload(client, input.tenantId, row.envelope_id, row.payload);
           } else {
             await this.insertEnvelope(client, input.tenantId, row.payload);
           }
@@ -565,6 +592,115 @@ export class PlanService extends BaseService {
         }
       },
     );
+  }
+
+  /**
+   * A bill with an active outflow schedule is funded from the schedule, not from its cap (D3).
+   * When a suggestion is accepted, the schedule takes the accepted amount (and date, when one
+   * was suggested) so the bill is not left funding the old number.
+   */
+  private async syncBillScheduleToPayload(
+    client: PoolClient,
+    tenantId: string,
+    envelopeId: string,
+    payload: EnvelopePayload,
+  ): Promise<void> {
+    if (payload.tierCategory !== "fixed") return;
+    const amountCents = payload.amountEachPaydayCents ?? payload.targetCapCents;
+    if (amountCents === null || amountCents === undefined || amountCents <= 0) return;
+    await client.query(
+      `UPDATE scheduled_schedules
+       SET amount = $1::numeric,
+           title = $2,
+           next_due_date = COALESCE($3::date, next_due_date)
+       WHERE tenant_id = $4 AND envelope_id = $5 AND direction = 'outflow' AND is_active = TRUE`,
+      [fromCents(amountCents), payload.name, payload.dueDate ?? null, tenantId, envelopeId],
+    );
+  }
+
+  /**
+   * Move everything a goal (or a bill that is off payday) holds into Spending. Owner and
+   * admin only. This is how leftover money is released before the envelope is removed.
+   * It is a move between envelopes: no bank balance changes and no ledger row is written.
+   */
+  async moveEnvelopeToSpending(input: {
+    tenantId: string;
+    userId: string;
+    role: MembershipRole;
+    envelopeId: string;
+  }): Promise<EnvelopeMoveResult> {
+    if (!canConfigure(input.role)) {
+      throw new Error("Forbidden");
+    }
+    return withTransaction({ tenantId: input.tenantId, userId: input.userId }, async (client) => {
+      await lockTenantForUpdate(client, input.tenantId);
+      const found = await client.query<{
+        id: string;
+        tier_category: "fixed" | "sinking";
+        current_balance: string;
+      }>(
+        `SELECT id, tier_category, current_balance::text
+         FROM envelopes
+         WHERE id = $1 AND tenant_id = $2 AND tier_category IN ('fixed', 'sinking')
+           AND archived_at IS NULL
+         FOR UPDATE`,
+        [input.envelopeId, input.tenantId],
+      );
+      const row = found.rows[0];
+      if (!row) throw new NotFoundError();
+
+      const sweepTarget = await client.query(
+        `SELECT 1 FROM envelopes WHERE tenant_id = $1 AND sweep_envelope_id = $2 LIMIT 1`,
+        [input.tenantId, input.envelopeId],
+      );
+      if (sweepTarget.rows.length > 0) {
+        throw new ConflictError("Spending sweeps into this goal, so its money stays put.");
+      }
+      if (row.tier_category === "fixed") {
+        const live = await client.query(
+          `SELECT 1 FROM scheduled_schedules
+           WHERE tenant_id = $1 AND envelope_id = $2 AND is_active = TRUE LIMIT 1`,
+          [input.tenantId, input.envelopeId],
+        );
+        if (live.rows.length > 0) {
+          throw new ConflictError("Take this bill off payday before moving its money.");
+        }
+      }
+
+      const movedCents = toCents(row.current_balance);
+      if (movedCents <= 0) {
+        throw new ConflictError("There is nothing set aside to move.");
+      }
+      const spending = await client.query<{ id: string }>(
+        `SELECT id FROM envelopes
+         WHERE tenant_id = $1 AND tier_category = 'discretionary' AND archived_at IS NULL
+         FOR UPDATE`,
+        [input.tenantId],
+      );
+      if (!spending.rows[0]) throw new ConflictError("No spending envelope");
+
+      await client.query(
+        `UPDATE envelopes SET current_balance = current_balance - $1
+         WHERE id = $2 AND tenant_id = $3`,
+        [fromCents(movedCents), input.envelopeId, input.tenantId],
+      );
+      await client.query(
+        `UPDATE envelopes SET current_balance = current_balance + $1
+         WHERE id = $2 AND tenant_id = $3`,
+        [fromCents(movedCents), spending.rows[0].id, input.tenantId],
+      );
+
+      await runEvaluationPipeline(client, {
+        tenantId: input.tenantId,
+        userId: input.userId,
+        trigger: "sync",
+      });
+      this.logInfo("Envelope balance moved to Spending", {
+        id: input.envelopeId,
+        movedCents,
+      });
+      return { id: input.envelopeId, movedCents };
+    });
   }
 
   private async insertEnvelope(

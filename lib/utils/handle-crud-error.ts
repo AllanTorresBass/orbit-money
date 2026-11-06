@@ -1,6 +1,7 @@
 import { isApiError } from "@/lib/api/api-error";
 import { pushInlineFeedback } from "@/lib/feedback/inline-feedback-store";
 import { logger } from "@/lib/logger";
+import { reportClientLog } from "@/lib/observability/report-client-log";
 
 export interface HandleCrudErrorOptions {
   /** What failed, in plain words: "save the bill", "invite them". */
@@ -32,6 +33,11 @@ export function handleCrudError(error: unknown, options: HandleCrudErrorOptions)
     error: error instanceof Error ? error.message : "unknown",
   });
   pushInlineFeedback("short", message);
+  // The server log is where an operator looks. Status only: no message text, no amounts.
+  reportClientLog(
+    "warn",
+    isApiError(error) ? `Save failed (${options.action}, ${error.status})` : `Save failed (${options.action})`,
+  );
   return message;
 }
 

@@ -173,6 +173,7 @@ async function hasSettledInflowToday(
      WHERE tenant_id = $1
        AND booked_date = $2::date
        AND amount > 0
+       AND reverses_transaction_id IS NULL
        AND settled_at IS NOT NULL`,
     [tenantId, today],
   );
@@ -463,13 +464,13 @@ async function runEvaluationSteps(
     inflowIsTodayAndUnsettled,
   });
 
+  // Net of undone purchases: an undo row books on the day of the purchase it reverses.
   const spentTodayRes = await client.query<{ spent: string }>(
-    `SELECT COALESCE(SUM(ABS(amount)), 0)::text AS spent
+    `SELECT GREATEST(COALESCE(-SUM(amount), 0), 0)::text AS spent
      FROM transactions
      WHERE tenant_id = $1
        AND envelope_id = $2
        AND booked_date = $3::date
-       AND amount < 0
        AND settled_at IS NOT NULL`,
     [input.tenantId, discretionary.id, today],
   );
@@ -846,8 +847,10 @@ async function settleTransaction(
     account_id: string;
     settled_at: string | null;
     booked_date: string;
+    reverses_transaction_id: string | null;
   }>(
-    `SELECT id, amount::text, envelope_id, account_id, settled_at::text, booked_date::text
+    `SELECT id, amount::text, envelope_id, account_id, settled_at::text, booked_date::text,
+            reverses_transaction_id
      FROM transactions WHERE id = $1 AND tenant_id = $2 FOR UPDATE`,
     [transactionId, tenantId],
   );
@@ -863,7 +866,18 @@ async function settleTransaction(
 
   const amountCents = toCents(txn.amount);
 
-  if (amountCents > 0) {
+  if (txn.reverses_transaction_id) {
+    // An undo is not a deposit: it gives back to the envelopes the original took from.
+    await settleReversal(client, {
+      tenantId,
+      transactionId,
+      reversedTransactionId: txn.reverses_transaction_id,
+      envelopeId: txn.envelope_id,
+      amountCents,
+      envelopes,
+      addDelta,
+    });
+  } else if (amountCents > 0) {
     // A named payday funds bills up to the one after it, whether it lands early, today, or late.
     let dueWindowEnd = advanceScheduleId
       ? await followingInflowOfSchedule(client, tenantId, advanceScheduleId, today, holidays)
@@ -944,7 +958,7 @@ async function settleTransaction(
   if (advanceScheduleId) {
     // The person named the schedule this money pays. Advance exactly that one, once.
     await advanceScheduleById(client, tenantId, advanceScheduleId, today);
-  } else if (amountCents > 0 && txn.booked_date === today) {
+  } else if (amountCents > 0 && !txn.reverses_transaction_id && txn.booked_date === today) {
     // D8 — only a credit within a cent of an inflow due today advances the payday.
     const schedules = await loadInflowSchedules(client, tenantId);
     const matches = schedules.some(
@@ -958,4 +972,64 @@ async function settleTransaction(
   }
 
   return { settled: true, idempotencyHit: false, envelopes: withDeltas() };
+}
+
+/**
+ * Give back what the reversed debit took. The original left `amount` out of its own envelope,
+ * except for any part a fixed or sinking envelope could not cover: that part came out of
+ * discretionary and is its own allocation row on the original. Both go back where they came from.
+ */
+async function settleReversal(
+  client: PoolClient,
+  input: {
+    tenantId: string;
+    transactionId: string;
+    reversedTransactionId: string;
+    envelopeId: string | null;
+    amountCents: number;
+    envelopes: EnvelopeState[];
+    addDelta: (envelopeId: string, cents: number) => void;
+  },
+): Promise<void> {
+  const { tenantId, transactionId, amountCents, addDelta } = input;
+  if (amountCents <= 0) {
+    throw new Error("Reversal must credit money back");
+  }
+  const envelope = input.envelopes.find((e) => e.id === input.envelopeId);
+  if (!envelope) {
+    throw new Error("Reversal requires an envelope");
+  }
+  const disc = input.envelopes.find((e) => e.tierCategory === "discretionary");
+  if (!disc) throw new Error("Missing discretionary envelope");
+
+  let deficitCents = 0;
+  if (envelope.tierCategory !== "discretionary") {
+    const deficit = await client.query<{ amount: string }>(
+      `SELECT COALESCE(SUM(amount), 0)::text AS amount FROM allocations
+       WHERE tenant_id = $1 AND transaction_id = $2 AND envelope_id = $3`,
+      [tenantId, input.reversedTransactionId, disc.id],
+    );
+    deficitCents = Math.min(toCents(deficit.rows[0]?.amount ?? "0"), amountCents);
+  }
+
+  const credits: Array<{ envelopeId: string; cents: number }> = [
+    { envelopeId: envelope.id, cents: amountCents - deficitCents },
+  ];
+  if (deficitCents > 0) credits.push({ envelopeId: disc.id, cents: deficitCents });
+
+  for (const credit of credits) {
+    if (credit.cents <= 0) continue;
+    addDelta(credit.envelopeId, credit.cents);
+    await client.query(
+      `UPDATE envelopes SET current_balance = current_balance + $1
+       WHERE id = $2 AND tenant_id = $3`,
+      [fromCents(credit.cents), credit.envelopeId, tenantId],
+    );
+    await client.query(
+      `INSERT INTO allocations (tenant_id, transaction_id, envelope_id, amount)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (transaction_id, envelope_id) DO NOTHING`,
+      [tenantId, transactionId, credit.envelopeId, fromCents(credit.cents)],
+    );
+  }
 }

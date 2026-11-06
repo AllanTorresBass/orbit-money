@@ -137,6 +137,20 @@ export interface TenantSnapshotRow {
   timezone: string;
   /** `allowance_snapshots.as_of_date`. Null when the tenant has never published. */
   snapshotAsOfDate: string | null;
+  /** Consecutive failed midnight runs. Reset by the next success. Absent counts as zero. */
+  midnightFailCount?: number;
+  /** Catch-up skips the tenant until this instant (ISO). Null or absent when not poisoned. */
+  midnightFailUntil?: string | null;
+}
+
+/** What one tick's catch-up selection decided. */
+export interface CatchUpSelection {
+  /** Tenants to run, never-published first then oldest snapshot. At most the limit. */
+  ids: string[];
+  /** Stale tenants beyond the limit, left for the next tick. */
+  staleBacklog: number;
+  /** Stale tenants skipped because their midnight run keeps failing. */
+  poisonSkipped: number;
 }
 
 /** Per-tick counters stored on `cron_batches`. */
@@ -145,6 +159,22 @@ export interface CronBatchCounts {
   okCount: number;
   errorCount: number;
   skippedCount: number;
+}
+
+/** Health view of the newest finished cron batch and the migration state. */
+export interface HealthMigrations {
+  /** Rows in `schema_migrations`. */
+  applied: number;
+  /** `.sql` files shipped in `db/migrations`. Null when the folder is not readable. */
+  expected: number | null;
+}
+
+export interface HealthResponse {
+  ok: boolean;
+  db: boolean;
+  migrations: HealthMigrations;
+  /** Seconds since the newest finished cron batch. Null when none has finished. */
+  cronBatchAgeSec: number | null;
 }
 
 export interface CronBatchSummary {

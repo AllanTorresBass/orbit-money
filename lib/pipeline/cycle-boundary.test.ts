@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isCycleEndDay } from "@/lib/pipeline/cycle-boundary";
+import { isCycleEndDay, nextOccurrenceAfter } from "@/lib/pipeline/cycle-boundary";
 import { sweepDiscretionaryAtCycleEnd } from "@/lib/engines/waterfall";
 import type { EnvelopeState } from "@/types/envelope/envelope.types";
 
@@ -51,5 +51,31 @@ describe("sweepDiscretionaryAtCycleEnd", () => {
     expect(plan.moves[1]?.amountCents).toBe(113_000);
     expect(plan.leftoverCents).toBe(0);
     expect(plan.incomplete).toBe(false);
+  });
+});
+
+describe("nextOccurrenceAfter month-end clamp (D11)", () => {
+  it("moves a day-31 bill from Jan 31 to Feb 28, not to March", () => {
+    expect(nextOccurrenceAfter("2026-01-31", "FREQ=MONTHLY;BYMONTHDAY=31", "2026-01-31")).toBe(
+      "2026-02-28",
+    );
+  });
+
+  it("returns to the 31st after a short month", () => {
+    expect(nextOccurrenceAfter("2026-02-28", "FREQ=MONTHLY;BYMONTHDAY=31", "2026-02-28")).toBe(
+      "2026-03-31",
+    );
+  });
+
+  it("uses Feb 29 in a leap year", () => {
+    expect(nextOccurrenceAfter("2028-01-31", "FREQ=MONTHLY;BYMONTHDAY=31", "2028-01-31")).toBe(
+      "2028-02-29",
+    );
+  });
+
+  it("leaves ordinary monthly rules to rrule", () => {
+    expect(nextOccurrenceAfter("2026-11-14", "FREQ=MONTHLY;BYMONTHDAY=14", "2026-11-14")).toBe(
+      "2026-12-14",
+    );
   });
 });

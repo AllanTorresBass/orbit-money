@@ -143,6 +143,132 @@ export class TransactionService extends BaseService {
     });
   }
 
+  /**
+   * Undo a purchase or a bill payment. Owner and admin only. Writes one compensating row:
+   * the opposite amount, on the same account and envelope, booked on the original's day so
+   * the day's spending nets out. The row points at the original (`reverses_transaction_id`),
+   * the bank balance moves back, and the pipeline settles it like any other row. A row can be
+   * undone once. A payday cannot be undone here, and neither can an undo.
+   *
+   * A bill payment's schedule is not moved back: the bill's next date stays where it is.
+   */
+  async voidTransaction(input: {
+    tenantId: string;
+    userId: string;
+    role: MembershipRole;
+    transactionId: string;
+    asOfDate?: string;
+  }): Promise<TransactionResult> {
+    if (!canConfigure(input.role)) {
+      throw new Error("Forbidden");
+    }
+    const voidId = randomUUID();
+    const idempotencyKey = `void:${input.transactionId}`;
+
+    return withPipelineRun(
+      {
+        tenantId: input.tenantId,
+        trigger: "sync",
+        asOfDate: input.asOfDate,
+        transactionId: voidId,
+        triggeredByUserId: input.userId,
+      },
+      async (run) => {
+        const outcome = await withTransaction<LedgerOutcome>(
+          { tenantId: input.tenantId, userId: input.userId },
+          async (client) => {
+            await lockTenantForUpdate(client, input.tenantId);
+
+            const original = await client.query<{
+              id: string;
+              account_id: string;
+              envelope_id: string | null;
+              amount: string;
+              booked_date: string;
+              memo: string | null;
+              settled_at: string | null;
+              reverses_transaction_id: string | null;
+            }>(
+              `SELECT id, account_id, envelope_id, amount::text, booked_date::text, memo,
+                      settled_at::text, reverses_transaction_id
+               FROM transactions
+               WHERE id = $1 AND tenant_id = $2
+               FOR UPDATE`,
+              [input.transactionId, input.tenantId],
+            );
+            const row = original.rows[0];
+            if (!row) throw new NotFoundError("Transaction not found");
+
+            const existing = await client.query<{ id: string }>(
+              `SELECT id FROM transactions
+               WHERE tenant_id = $1 AND reverses_transaction_id = $2`,
+              [input.tenantId, row.id],
+            );
+            if (existing.rows[0]) {
+              throw new ConflictError("That was already undone.");
+            }
+
+            const originalCents = toCents(row.amount);
+            if (row.reverses_transaction_id || originalCents >= 0 || !row.envelope_id) {
+              throw new ValidationError("Only a purchase or a bill payment can be undone.");
+            }
+            if (!row.settled_at) {
+              throw new ConflictError("That is still being recorded. Try again in a moment.");
+            }
+
+            const creditCents = -originalCents;
+            await client.query(
+              `INSERT INTO transactions
+                 (id, tenant_id, account_id, envelope_id, amount, booked_at, booked_date, memo,
+                  idempotency_key, reverses_transaction_id)
+               VALUES ($1, $2, $3, $4, $5, $6, $7::date, $8, $9, $10)`,
+              [
+                voidId,
+                input.tenantId,
+                row.account_id,
+                row.envelope_id,
+                fromCents(creditCents),
+                new Date().toISOString(),
+                row.booked_date,
+                `Undo: ${row.memo ?? "Purchase"}`.slice(0, 200),
+                idempotencyKey,
+                row.id,
+              ],
+            );
+            await client.query(
+              `UPDATE accounts
+               SET current_balance = current_balance + $1, updated_at = NOW()
+               WHERE id = $2 AND tenant_id = $3`,
+              [fromCents(creditCents), row.account_id, input.tenantId],
+            );
+
+            const pipeline = await runEvaluationPipeline(client, {
+              tenantId: input.tenantId,
+              userId: input.userId,
+              trigger: "sync",
+              transactionId: voidId,
+              asOfDate: run.asOfDate,
+              runId: run.runId,
+              runPreStarted: true,
+            });
+
+            this.logInfo("Ledger transaction undone", {
+              tenantId: input.tenantId,
+              reversedTransactionId: row.id,
+              amountCents: creditCents,
+            });
+
+            return {
+              result: { id: voidId, sTodayCents: pipeline.sTodayCents },
+              replay: false,
+            };
+          },
+        );
+        return outcome.result;
+      },
+    );
+  }
+
   private assertPositive(amountCents: number): void {
     if (!Number.isInteger(amountCents) || amountCents <= 0) {
       throw new Error("Amount must be positive");

@@ -19,7 +19,7 @@ export interface MarkBillPaidSheetProps {
  */
 export function MarkBillPaidSheet({ bill, onClose, className }: MarkBillPaidSheetProps) {
   const [dollars, setDollars] = useState(
-    dollarsFromCents(bill.dueAmountCents ?? bill.targetCapCents ?? 0),
+    dollarsFromCents(bill.dueAmountCents ?? bill.targetCapCents ?? bill.balanceCents),
   );
   const [idempotencyKey] = useState(() => crypto.randomUUID());
   const record = useRecordOutflow();
@@ -27,14 +27,15 @@ export function MarkBillPaidSheet({ bill, onClose, className }: MarkBillPaidShee
 
   async function onSave(): Promise<void> {
     const amountCents = parseDollarsToCents(dollars);
-    if (amountCents === null || amountCents <= 0 || !bill.scheduleId) {
+    if (amountCents === null || amountCents <= 0) {
       handleCrudError(new Error("Invalid amount"), { action: "record the payment" });
       return;
     }
     try {
       await record.mutateAsync({
         amountCents,
-        scheduleId: bill.scheduleId,
+        // A bill taken off payday that still holds money has no schedule: name the envelope.
+        ...(bill.scheduleId ? { scheduleId: bill.scheduleId } : { envelopeId: bill.id }),
         idempotencyKey,
         memo: bill.name,
       });

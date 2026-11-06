@@ -1,5 +1,6 @@
 import { addDays, parseISODate } from "@/lib/calendar/dates";
 import { getHolidaySet, normalizeBusinessDay } from "@/lib/calendar/holidays";
+import { logger } from "@/lib/logger";
 
 /**
  * Holidays for a tenant region across `[startIso, endIso]`, with a year of margin
@@ -20,7 +21,11 @@ export function holidaySetForRange(region: string, startIso: string, endIso: str
 export function loadTenantHolidays(region: string, today: string): Set<string> | null {
   try {
     return holidaySetForRange(region, addDays(today, -7), addDays(today, 400));
-  } catch {
+  } catch (error: unknown) {
+    logger.warn("Holiday calendar load failed", {
+      region,
+      error: error instanceof Error ? error.message : "unknown",
+    });
     return null;
   }
 }

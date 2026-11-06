@@ -1,9 +1,10 @@
 import { z } from "zod";
 import { isoDateSchema } from "@/types/forecast/forecast.types";
 import { entityIdSchema } from "@/types/shared/ids";
+import { amountCentsSchema } from "@/types/shared/money";
 
 export const createPurchaseBodySchema = z.object({
-  amountCents: z.number().int().positive(),
+  amountCents: amountCentsSchema,
   idempotencyKey: z.string().min(1).max(200).optional(),
   memo: z.string().max(200).optional(),
   /**
@@ -16,7 +17,7 @@ export type CreatePurchaseBody = z.infer<typeof createPurchaseBodySchema>;
 
 /** A payday (or any money in). Owner and admin only. */
 export const recordInflowBodySchema = z.object({
-  amountCents: z.number().int().positive(),
+  amountCents: amountCentsSchema,
   /** Tenant-local date. Defaults to today. */
   bookedDate: isoDateSchema.optional(),
   accountId: entityIdSchema.optional(),
@@ -29,7 +30,7 @@ export type RecordInflowBody = z.infer<typeof recordInflowBodySchema>;
 
 /** A bill leaving the bank. Owner and admin only. */
 export const recordOutflowBodySchema = z.object({
-  amountCents: z.number().int().positive(),
+  amountCents: amountCentsSchema,
   bookedDate: isoDateSchema.optional(),
   accountId: entityIdSchema.optional(),
   /** The bill schedule this payment settles. Supplies the envelope when `envelopeId` is absent. */
@@ -39,6 +40,9 @@ export const recordOutflowBodySchema = z.object({
   memo: z.string().max(200).optional(),
 });
 export type RecordOutflowBody = z.infer<typeof recordOutflowBodySchema>;
+
+/** Route params of `POST /api/v1/transactions/[id]/void`. */
+export const transactionIdParamSchema = z.object({ id: entityIdSchema });
 
 export interface TransactionResult {
   id: string;

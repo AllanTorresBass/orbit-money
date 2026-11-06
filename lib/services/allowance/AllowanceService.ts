@@ -64,9 +64,21 @@ export class AllowanceService extends BaseService {
         [tenantId],
       );
 
+      const tomorrow = await client.query<{ assumed_burn: string }>(
+        `SELECT assumed_burn::text FROM forecast_days
+         WHERE tenant_id = $1 AND day_offset = 1
+         LIMIT 1`,
+        [tenantId],
+      );
+      const sDailyCents = toCents(row.s_daily);
+      const tomorrowBurnCents = tomorrow.rows[0]
+        ? toCents(tomorrow.rows[0].assumed_burn)
+        : sDailyCents;
+
       return {
         sTodayCents: toCents(row.s_today),
-        sDailyCents: toCents(row.s_daily),
+        sDailyCents,
+        tomorrowBurnCents,
         nP: row.n_p,
         nextPayday: row.next_payday,
         mitigated: row.mitigated,

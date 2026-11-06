@@ -188,6 +188,34 @@ Shipped after Phase 7 on `main`:
 
 ---
 
+## Phase 9 — Abuse guards, catch-up, and household polish
+
+Shipped after Phase 8 on `main` (migration `009_auth_rate_limits.sql`):
+
+- Magic-link requests are rate limited per email (`auth_rate_limits`, fail closed); invite emails go out through Resend with an `inviteHint` fallback.
+- The midnight cron **catches up** tenants whose snapshot is behind their local today (cap 50 per tick) and closes batches a crashed tick left open; Today says when numbers are from an earlier day.
+- Offline purchases carry their `bookedDate`; poison items wait for the person (Dismiss).
+- Removing a bill or goal archives the envelope (`envelopes.archived_at`) instead of deleting history; a bill that still holds money only leaves payday.
+- Households: the picker, the `orbit_tenant` cookie, and an explicit tenant for multi-household people.
+- Pipeline runs store a truncated `error_message`; You → Activity shows the overnight batch.
+
+**Done when:** Magic-link floods are refused before mail is sent; a missed hour-0 tick heals within the hour; Plan Remove never loses cents. Apply `009` before deploy ([12-deploy.md](12-deploy.md)).
+
+---
+
+## Phase 10 — Catch-up resilience, money continuity, observability
+
+Migration `010_phase10.sql`:
+
+- **Catch-up resilience.** Three failed midnight runs in a row rest a tenant from catch-up for 24 hours (`tenants.midnight_fail_count` / `midnight_fail_until`, `meta.poisonSkipped`). A zone that skips local 00:00 (DST) runs once the gap passes. Batches record `durationMs`, `unprocessedDue`, `staleBacklog`, `deadlineHit`. `?all=1` also needs `x-orbit-force-all: 1`.
+- **Money continuity.** Undo a purchase or bill payment (`POST /api/v1/transactions/[id]/void`, `transactions.reverses_transaction_id`). Accepting a suggestion keeps the bill's schedule amount in step (D3). Mark paid works for a funded bill with no schedule. A goal's leftover money moves to Spending before removal (D16).
+- **Observability.** `POST /api/v1/client-log`; `GET /api/v1/health` reports migrations and cron age; 4xx rejections log at info; holiday and RRULE fallbacks log.
+- **Fixes.** Plan hides the sweep sink by id and Reorder tolerates it; month-end bills clamp into short months (D11); Today's past-pace copy cites tomorrow's rate; amounts are capped at `$99,999,999.99`.
+
+**Done when:** A bad tenant cannot starve the tick; a wrong purchase can be undone once; `/health` reports a missing migration. Apply `010` before deploy ([12-deploy.md](12-deploy.md)).
+
+---
+
 ## Build order (dependency)
 
 ```text
@@ -200,6 +228,8 @@ Shipped after Phase 7 on `main`:
 6 Screens and flows
 7 Cron, auth upgrade, deploy
 8 Prod auth, continuity APIs, cron batches
+9 Abuse guards, catch-up, archived envelopes
+10 Poison skip, undo, client log, health
 ```
 
 Do not ship a screen that computes `S_today` in the client. Do not reorder pipeline steps. Do not introduce an ORM.
@@ -217,5 +247,7 @@ Do not ship a screen that computes `S_today` in the client. Do not reorder pipel
 - [x] No `any`, no `console.*`, no secrets in git
 - [x] `.env` absent from remote; `.env.example` present
 - [x] Phase 8 continuity: Record payday / Mark bill paid APIs; cron batches; Bearer cron
+- [x] Phase 9: magic-link rate limit; stale-tenant catch-up; archive instead of delete
+- [x] Phase 10: poison skip; undo a purchase once; leftover goal money moves to Spending; `/health` migration check
 
-Remaining ops: link the Vercel project and set Neon + `AUTH_SECRET` + `CRON_SECRET` (+ Resend for production sign-in) per [12-deploy.md](12-deploy.md). Run migrations through `008` before traffic.
+Remaining ops: link the Vercel project and set Neon + `AUTH_SECRET` + `CRON_SECRET` (+ Resend for production sign-in) per [12-deploy.md](12-deploy.md). Run migrations through `010` before traffic.

@@ -1,6 +1,11 @@
 export interface AllowanceDto {
   sTodayCents: number;
   sDailyCents: number;
+  /**
+   * Tomorrow's projected burn (forecast day 1). Used for past-pace copy when
+   * S_today is negative so the hero cites the rebaked rate (D7), not morning S_daily.
+   */
+  tomorrowBurnCents: number;
   /** Days until the next inflow. Null when no future inflow is scheduled. */
   nP: number | null;
   nextPayday: string | null;

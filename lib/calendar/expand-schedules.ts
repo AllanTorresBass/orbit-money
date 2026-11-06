@@ -2,6 +2,8 @@ import { DateTime } from "luxon";
 import { RRule, rrulestr } from "rrule";
 import { addDays } from "@/lib/calendar/dates";
 import { normalizeBusinessDay } from "@/lib/calendar/holidays";
+import { monthEndMonthlyDay, monthEndOccurrencesBetween } from "@/lib/calendar/month-clamp";
+import { logger } from "@/lib/logger";
 import { toCents } from "@/lib/money/numeric";
 
 export interface ScheduleRow {
@@ -44,13 +46,40 @@ export function expandSchedules(input: {
       ? schedule.recurrenceRrule.trim()
       : `RRULE:${schedule.recurrenceRrule.trim()}`;
 
+    // D11 — a bill due on the 29th-31st (or the last day) lands on the last day of a short month.
+    const monthEndDay = monthEndMonthlyDay(ruleText);
+    if (monthEndDay !== null) {
+      const dates = monthEndOccurrencesBetween({
+        anchor: schedule.nextDueDate,
+        byMonthDay: monthEndDay,
+        from: input.today,
+        until,
+      });
+      for (const iso of dates) {
+        addOccurrence(
+          eventsByDate,
+          paydayDates,
+          iso,
+          schedule.direction,
+          amountCents,
+          input.holidays,
+          input.today,
+          until,
+        );
+      }
+      continue;
+    }
+
     let rule: RRule;
     try {
       rule = rrulestr(ruleText, {
         dtstart: toRRuleDate(schedule.nextDueDate),
       }) as RRule;
-    } catch {
+    } catch (error: unknown) {
       // Fall back to a single occurrence on next_due_date.
+      logger.info("RRULE parse fell back to a single occurrence", {
+        error: error instanceof Error ? error.message : "unknown",
+      });
       addOccurrence(
         eventsByDate,
         paydayDates,

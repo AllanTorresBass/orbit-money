@@ -10,6 +10,8 @@ export interface TenantPickerProps {
   currentTenantId?: string;
   /** `page` is the full "Which household?" screen. `inline` is a section inside another screen. */
   variant?: "page" | "inline";
+  /** DOM id, so a link can jump to the switcher (`/you#households`). */
+  id?: string;
   className?: string;
 }
 
@@ -18,13 +20,14 @@ export function TenantPicker({
   tenants,
   currentTenantId,
   variant = "page",
+  id,
   className,
 }: TenantPickerProps) {
   const select = useSelectTenant();
   const inline = variant === "inline";
 
   return (
-    <div className={cn(inline ? "mt-10" : "mx-auto max-w-md px-6 pt-10", className)}>
+    <div id={id} className={cn(inline ? "mt-10" : "mx-auto max-w-md px-6 pt-10", className)}>
       {inline ? (
         <h2 className="text-[15px] font-medium text-[var(--orbit-ink)]">Households</h2>
       ) : (

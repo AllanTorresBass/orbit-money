@@ -10,7 +10,7 @@ import {
 } from "@/hooks/use-people";
 import { useGlobalErrorHandler } from "@/hooks/use-global-error-handler";
 import { cn } from "@/lib/utils";
-import { ROLE_LABELS } from "@/lib/utils/display-labels";
+import { ROLE_DESCRIPTIONS, ROLE_LABELS } from "@/lib/utils/display-labels";
 import { fetchErrorMessage } from "@/lib/utils/handle-fetch-error";
 import type { MeDto } from "@/types/me/me.types";
 import type {
@@ -236,21 +236,35 @@ export function PeopleSection({ me, className }: PeopleSectionProps) {
             type="email"
             className="mt-3 w-full border-b border-[var(--orbit-line)] bg-transparent py-2 text-[17px] outline-none"
           />
-          <div className="mt-3 flex flex-wrap gap-3">
-            {assignable.map((role) => (
-              <button
-                key={role}
-                type="button"
-                onClick={() => setInviteRole(role)}
-                className={cn(
-                  "text-[15px]",
-                  inviteRole === role ? "text-[var(--orbit-ink)]" : "text-[var(--orbit-secondary)]",
-                )}
-              >
-                {ROLE_LABELS[role]}
-              </button>
-            ))}
-          </div>
+          <ul className="mt-3" role="radiogroup" aria-label="Role">
+            {assignable.map((role) => {
+              const selected = inviteRole === role;
+              return (
+                <li key={role} className="border-b border-[var(--orbit-line)]">
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={selected}
+                    onClick={() => setInviteRole(role)}
+                    className="flex w-full flex-col py-2 text-left"
+                  >
+                    <span
+                      className={cn(
+                        "text-[17px]",
+                        selected ? "text-[var(--orbit-ink)]" : "text-[var(--orbit-secondary)]",
+                      )}
+                    >
+                      {ROLE_LABELS[role]}
+                      {selected ? " ✓" : ""}
+                    </span>
+                    <span className="text-[13px] text-[var(--orbit-secondary)]">
+                      {ROLE_DESCRIPTIONS[role]}
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
           <button
             type="button"
             disabled={invite.isPending}

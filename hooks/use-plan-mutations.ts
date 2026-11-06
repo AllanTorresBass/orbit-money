@@ -133,3 +133,19 @@ export function useUpdateSchedule() {
     },
   });
 }
+
+/** Move a goal's leftover money into Spending. Owner and admin only; the server enforces it. */
+export function useMoveEnvelopeToSpending() {
+  const queryClient = useQueryClient();
+  const { handleCrudError, notifySuccess } = useGlobalErrorHandler();
+  return useMutation({
+    mutationFn: (id: string) => api.moveEnvelopeToSpending(id),
+    onSuccess: async () => {
+      notifySuccess("Moved to Spending");
+      await invalidateMoneyQueries(queryClient);
+    },
+    onError: (error: unknown) => {
+      handleCrudError(error, { action: "move that money" });
+    },
+  });
+}
