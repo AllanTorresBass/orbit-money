@@ -10,6 +10,7 @@ import type {
   EnvelopePayload,
   ProposalDecision,
   ReorderEnvelopesBody,
+  UpdateScheduleBody,
 } from "@/types/plan/plan.types";
 
 function isSuggestion(result: EnvelopeMutationResult): boolean {
@@ -89,6 +90,46 @@ export function useResolveProposal() {
     },
     onError: (error: unknown) => {
       handleCrudError(error, { action: "answer that suggestion" });
+    },
+  });
+}
+
+/** Take a bill or goal off the Plan. Owner and admin only; the server enforces it. */
+export function useRemoveEnvelope(kind: EnvelopePayload["tierCategory"]) {
+  const queryClient = useQueryClient();
+  const { handleCrudError, notifySuccess } = useGlobalErrorHandler();
+  const noun = kind === "fixed" ? "bill" : "goal";
+  return useMutation({
+    mutationFn: (id: string) => api.removeEnvelope(id),
+    onSuccess: async (result) => {
+      notifySuccess(
+        result.archived
+          ? kind === "fixed"
+            ? "Bill removed"
+            : "Goal removed"
+          : "Bill taken off payday. Its money stays set aside.",
+      );
+      await invalidateMoneyQueries(queryClient);
+    },
+    onError: (error: unknown) => {
+      handleCrudError(error, { action: `remove the ${noun}` });
+    },
+  });
+}
+
+/** Change a payday or bill schedule. Owner and admin only; the server enforces it. */
+export function useUpdateSchedule() {
+  const queryClient = useQueryClient();
+  const { handleCrudError, notifySuccess } = useGlobalErrorHandler();
+  return useMutation({
+    mutationFn: (input: { id: string; body: UpdateScheduleBody }) =>
+      api.updateSchedule(input.id, input.body),
+    onSuccess: async () => {
+      notifySuccess("Saved");
+      await invalidateMoneyQueries(queryClient);
+    },
+    onError: (error: unknown) => {
+      handleCrudError(error, { action: "save the schedule" });
     },
   });
 }

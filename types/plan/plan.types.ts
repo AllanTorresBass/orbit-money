@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { isoDateSchema } from "@/types/forecast/forecast.types";
 import { entityIdSchema } from "@/types/shared/ids";
+import { isSafePaydayRrule } from "@/lib/utils/rrule-guard";
 
 export type PlanTier = "fixed" | "sinking" | "discretionary";
 export type EditableTier = "fixed" | "sinking";
@@ -15,6 +16,10 @@ export interface PlanEnvelopeDto {
   monthlyInstallmentCents: number | null;
   /** When a bill leaves the bank. Null for goals and bills with no schedule. */
   nextDueDate: string | null;
+  /** The bill's active outflow schedule, so a payment can settle it. Null for goals. */
+  scheduleId: string | null;
+  /** What the next payment is expected to be. Null when there is no active schedule. */
+  dueAmountCents: number | null;
 }
 
 export interface PlanPurchaseDto {
@@ -60,6 +65,43 @@ export const reorderEnvelopesBodySchema = z.object({
   tierCategory: z.enum(["fixed", "sinking"]),
   orderedIds: z.array(entityIdSchema).min(1),
 });
+
+/** Change a schedule's amount, next date, or repeat rule. Owner and admin only. */
+export const updateScheduleBodySchema = z
+  .object({
+    amountCents: z.number().int().positive().optional(),
+    nextDueDate: isoDateSchema.optional(),
+    recurrenceRrule: z
+      .string()
+      .trim()
+      .min(1)
+      .max(100)
+      .refine(isSafePaydayRrule, "Unsupported repeat rule")
+      .optional(),
+  })
+  .refine(
+    (body) =>
+      body.amountCents !== undefined ||
+      body.nextDueDate !== undefined ||
+      body.recurrenceRrule !== undefined,
+    "Nothing to change",
+  );
+export type UpdateScheduleBody = z.infer<typeof updateScheduleBodySchema>;
+
+export const entityIdParamSchema = z.object({ id: entityIdSchema });
+
+export interface ScheduleMutationResult {
+  id: string;
+}
+
+/**
+ * What removing a bill or goal did. `archived` is true when the envelope left the Plan.
+ * A bill that still holds money is only taken off payday (`archived` false) until it is spent.
+ */
+export interface EnvelopeRemovalResult {
+  id: string;
+  archived: boolean;
+}
 
 export interface EditableEnvelope {
   id: string;

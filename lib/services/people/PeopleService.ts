@@ -2,10 +2,13 @@ import { randomUUID } from "node:crypto";
 import type { PoolClient } from "pg";
 import { canManagePeople, type MembershipRole } from "@/lib/auth/permissions";
 import { withTransaction } from "@/lib/db/connection";
+import { buildInviteHint, sendInviteEmail } from "@/lib/email/invite-email";
+import { isEmailConfigured } from "@/lib/email/resend";
 import { BaseService } from "@/lib/services/base/BaseService";
 import type {
   AssignableRole,
   InviteResult,
+  InviteSentResult,
   MembershipStatus,
   PendingInviteDto,
   PersonDto,
@@ -55,14 +58,16 @@ export class PeopleService extends BaseService {
     email: string;
     name: string;
     inviteRole: AssignableRole;
-  }): Promise<InviteResult> {
+  }): Promise<InviteSentResult> {
     if (!canManagePeople(input.role)) {
       throw new Error("Forbidden");
     }
     if (input.role === "admin" && input.inviteRole === "admin") {
       throw new Error("Forbidden");
     }
-    return withTransaction({ tenantId: input.tenantId, userId: input.userId }, async (client) => {
+    const invited = await withTransaction(
+      { tenantId: input.tenantId, userId: input.userId },
+      async (client) => {
       await client.query("SELECT set_config('app.bypass_rls', 'on', true)");
 
       let inviteeId: string;
@@ -95,9 +100,45 @@ export class PeopleService extends BaseService {
         throw new Error("Conflict");
       }
 
+      const context = await client.query<{ tenant_name: string; inviter_name: string }>(
+        `SELECT t.name AS tenant_name, COALESCE(u.name, '') AS inviter_name
+         FROM tenants t
+         LEFT JOIN users u ON u.id = $2
+         WHERE t.id = $1`,
+        [input.tenantId, input.userId],
+      );
+
       this.logInfo("Person invited", { tenantId: input.tenantId, userId: inviteeId });
-      return { userId: inviteeId, status: upserted.rows[0].status };
+      return {
+        userId: inviteeId,
+        status: upserted.rows[0].status,
+        tenantName: context.rows[0]?.tenant_name ?? "your household",
+        inviterName: context.rows[0]?.inviter_name ?? "",
+      };
     });
+
+    // Mail goes out after the membership commits, and never fails the invite: the sender
+    // always gets a hint to pass on by hand.
+    const inviteHint = buildInviteHint();
+    let emailed = false;
+    if (isEmailConfigured()) {
+      try {
+        await sendInviteEmail({
+          to: input.email.toLowerCase(),
+          inviteeName: input.name,
+          inviterName: invited.inviterName,
+          tenantName: invited.tenantName,
+          link: inviteHint,
+        });
+        emailed = true;
+      } catch (error: unknown) {
+        this.logError("Invite email failed", {
+          tenantId: input.tenantId,
+          error: error instanceof Error ? error.message : "unknown",
+        });
+      }
+    }
+    return { userId: invited.userId, status: invited.status, inviteHint, emailed };
   }
 
   /**

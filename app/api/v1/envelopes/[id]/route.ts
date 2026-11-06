@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { resolveSession } from "@/lib/auth/session";
 import { TenantSelectionRequiredError, tenantSelectionResponse } from "@/lib/auth/tenant-selection";
+import { isServiceError } from "@/lib/errors/service-errors";
 import { logger } from "@/lib/logger";
 import { planService } from "@/lib/services";
-import { envelopePayloadSchema } from "@/types/plan/plan.types";
+import { envelopePayloadSchema, entityIdParamSchema } from "@/types/plan/plan.types";
 
 export async function PATCH(
   request: NextRequest,
@@ -34,6 +35,9 @@ export async function PATCH(
     if (error instanceof TenantSelectionRequiredError) {
       return tenantSelectionResponse(error);
     }
+    if (isServiceError(error)) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     const message = error instanceof Error ? error.message : "unknown";
     if (message === "Forbidden") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -42,6 +46,44 @@ export async function PATCH(
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
     logger.error("PATCH /envelopes failed", { error: message });
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  }
+}
+
+/** Take a bill or goal off the Plan. Owner and admin only. */
+export async function DELETE(
+  _request: NextRequest,
+  context: { params: Promise<{ id: string }> },
+): Promise<NextResponse> {
+  try {
+    const session = await resolveSession();
+    if (!session) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    const parsed = entityIdParamSchema.safeParse(await context.params);
+    if (!parsed.success) {
+      return NextResponse.json({ error: "Validation failed" }, { status: 400 });
+    }
+
+    const result = await planService.removeEnvelope({
+      tenantId: session.tenantId,
+      userId: session.userId,
+      role: session.role,
+      envelopeId: parsed.data.id,
+    });
+    return NextResponse.json(result);
+  } catch (error: unknown) {
+    if (error instanceof TenantSelectionRequiredError) {
+      return tenantSelectionResponse(error);
+    }
+    if (isServiceError(error)) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
+    const message = error instanceof Error ? error.message : "unknown";
+    if (message === "Forbidden") {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+    logger.error("DELETE /envelopes failed", { error: message });
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

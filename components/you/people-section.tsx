@@ -13,7 +13,12 @@ import { cn } from "@/lib/utils";
 import { ROLE_LABELS } from "@/lib/utils/display-labels";
 import { fetchErrorMessage } from "@/lib/utils/handle-fetch-error";
 import type { MeDto } from "@/types/me/me.types";
-import type { AssignableRole, PersonDto, PersonRole } from "@/types/people/people.types";
+import type {
+  AssignableRole,
+  InviteSentResult,
+  PersonDto,
+  PersonRole,
+} from "@/types/people/people.types";
 
 export interface PeopleSectionProps {
   me: MeDto;
@@ -24,6 +29,47 @@ const ALL_ASSIGNABLE: AssignableRole[] = ["advisor", "member", "admin", "read_on
 
 function isManager(role: PersonRole): boolean {
   return role === "owner" || role === "admin";
+}
+
+interface InviteHintNoteProps {
+  result: InviteSentResult;
+  className?: string;
+}
+
+/** What happened to the invite, and the link to pass on by hand. */
+function InviteHintNote({ result, className }: InviteHintNoteProps) {
+  const { handleCrudError, notifySuccess } = useGlobalErrorHandler();
+
+  async function copyHint(): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(result.inviteHint);
+      notifySuccess("Link copied");
+    } catch (error: unknown) {
+      handleCrudError(error, { action: "copy the link" });
+    }
+  }
+
+  return (
+    <div className={cn("text-[15px] text-[var(--orbit-secondary)]", className)} role="status">
+      <p>
+        {result.emailed
+          ? "We emailed them. They can also open this once they sign in:"
+          : "We'll email them when mail is configured. For now, send them this to open after they sign in:"}
+      </p>
+      <div className="mt-2 flex items-baseline justify-between gap-3">
+        <span className="min-w-0 break-all text-[var(--orbit-ink)]">{result.inviteHint}</span>
+        <button
+          type="button"
+          className="shrink-0 text-[var(--orbit-ink)]"
+          onClick={() => {
+            void copyHint();
+          }}
+        >
+          Copy
+        </button>
+      </div>
+    </div>
+  );
 }
 
 export function PeopleSection({ me, className }: PeopleSectionProps) {
@@ -42,6 +88,7 @@ export function PeopleSection({ me, className }: PeopleSectionProps) {
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<AssignableRole>("advisor");
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
+  const [lastInvite, setLastInvite] = useState<InviteSentResult | null>(null);
 
   function canEdit(person: PersonDto): boolean {
     if (!canManage || person.userId === me.userId || person.role === "owner") return false;
@@ -57,9 +104,10 @@ export function PeopleSection({ me, className }: PeopleSectionProps) {
     invite.mutate(
       { name: inviteName.trim(), email: inviteEmail.trim(), role: inviteRole },
       {
-        onSuccess: () => {
+        onSuccess: (result) => {
           setInviteName("");
           setInviteEmail("");
+          setLastInvite(result);
         },
       },
     );
@@ -211,6 +259,13 @@ export function PeopleSection({ me, className }: PeopleSectionProps) {
           >
             Send invite
           </button>
+          {lastInvite ? (
+            <InviteHintNote result={lastInvite} className="mt-4" />
+          ) : (
+            <p className="mt-3 text-[13px] text-[var(--orbit-secondary)]">
+              We&apos;ll email them when mail is configured.
+            </p>
+          )}
         </section>
       ) : null}
     </div>

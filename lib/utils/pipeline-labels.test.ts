@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { formatDuration, runDurationMs, runStatusLabel } from "@/lib/utils/pipeline-labels";
+import {
+  formatDuration,
+  runDurationMs,
+  runReasonLabel,
+  runStatusLabel,
+} from "@/lib/utils/pipeline-labels";
 import type { PipelineRunListItem } from "@/types/pipeline/pipeline.types";
 
 function run(overrides: Partial<PipelineRunListItem>): PipelineRunListItem {
@@ -20,6 +25,7 @@ function run(overrides: Partial<PipelineRunListItem>): PipelineRunListItem {
     cronBatchId: null,
     errorCode: null,
     reasonCode: "ok",
+    errorMessage: null,
     cashCents: 0,
     triggeredByUserId: null,
     ...overrides,
@@ -40,5 +46,18 @@ describe("pipeline labels", () => {
     expect(formatDuration(250)).toBe("250 ms");
     expect(formatDuration(1500)).toBe("1.5 s");
     expect(formatDuration(null)).toBe("—");
+  });
+
+  it("explains a run in plain words from its reason or error code", () => {
+    expect(runReasonLabel(run({}))).toBeNull();
+    expect(runReasonLabel(run({ reasonCode: "no_future_inflow" }))).toMatch(/payday/i);
+    expect(runReasonLabel(run({ reasonCode: "breach_mitigated" }))).toMatch(/lowered/i);
+    expect(runReasonLabel(run({ status: "error", reasonCode: "abandoned", errorCode: "abandoned" })))
+      .toMatch(/stopped/i);
+    expect(runReasonLabel(run({ status: "error", reasonCode: "pg_23505", errorCode: "pg_23505" })))
+      .toMatch(/database/i);
+    // An unknown code never leaks engine vocabulary.
+    expect(runReasonLabel(run({ status: "error", errorCode: "weird_code", reasonCode: null })))
+      .toBe("Something went wrong. Orbit will try again overnight.");
   });
 });

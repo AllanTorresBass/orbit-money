@@ -38,7 +38,12 @@ function readQueue(scope: OfflineQueueScope): QueuedPurchase[] {
     if (!Array.isArray(parsed)) return [];
     return parsed.filter(isQueuedPurchase).map((item) => {
       const failures = (item as { failures?: unknown }).failures;
-      return { ...item, failures: typeof failures === "number" ? failures : 0 };
+      const bookedDate = (item as { bookedDate?: unknown }).bookedDate;
+      return {
+        ...item,
+        failures: typeof failures === "number" ? failures : 0,
+        bookedDate: typeof bookedDate === "string" ? bookedDate : undefined,
+      };
     });
   } catch {
     return [];
@@ -55,16 +60,30 @@ export function isPoisonPurchase(item: QueuedPurchase): boolean {
   return item.failures >= MAX_QUEUE_FAILURES;
 }
 
+/** The device's local calendar date as YYYY-MM-DD. Fallback when no household date is given. */
+function deviceLocalDate(now: Date): string {
+  const year = String(now.getFullYear()).padStart(4, "0");
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+/**
+ * Save a purchase on this device. `bookedDate` is the day it was made (YYYY-MM-DD), fixed now so
+ * a flush days later still lands on the right day. Callers pass the household's local date.
+ */
 export function enqueuePurchase(
   scope: OfflineQueueScope,
-  input: { amountCents: number; idempotencyKey: string; memo?: string },
+  input: { amountCents: number; idempotencyKey: string; memo?: string; bookedDate?: string },
 ): QueuedPurchase {
+  const createdAt = new Date();
   const item: QueuedPurchase = {
     id: crypto.randomUUID(),
     amountCents: input.amountCents,
     idempotencyKey: input.idempotencyKey,
     memo: input.memo,
-    createdAt: new Date().toISOString(),
+    bookedDate: input.bookedDate ?? deviceLocalDate(createdAt),
+    createdAt: createdAt.toISOString(),
     failures: 0,
   };
   writeQueue(scope, [...readQueue(scope), item]);

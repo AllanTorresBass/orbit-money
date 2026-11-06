@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useGlobalErrorHandler } from "@/hooks/use-global-error-handler";
 import { api } from "@/lib/api/client";
+import { todayInTimezone } from "@/lib/calendar/dates";
 import { enqueuePurchase } from "@/lib/offline/purchase-queue";
 import { invalidateMoneyQueries } from "@/lib/query-invalidation";
 import { queryKeys } from "@/lib/query-keys";
@@ -35,6 +36,10 @@ export function useCreatePurchase() {
     return me ? { tenantId: me.tenantId, userId: me.userId } : null;
   }
 
+  function currentTimezone(): string | null {
+    return queryClient.getQueryData<MeDto>(queryKeys.me.all)?.timezone ?? null;
+  }
+
   return useMutation({
     mutationFn: async (input: { amountCents: number; idempotencyKey?: string; memo?: string }) => {
       const idempotencyKey = input.idempotencyKey ?? crypto.randomUUID();
@@ -45,6 +50,8 @@ export function useCreatePurchase() {
           amountCents: input.amountCents,
           idempotencyKey,
           memo: input.memo,
+          // The day it was spent in the household's calendar, kept for when it finally sends.
+          bookedDate: todayInTimezone(currentTimezone() ?? "UTC"),
         });
         return { queued: true as const };
       };

@@ -4,7 +4,14 @@ import type { NextAuthConfig } from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import Resend from "next-auth/providers/resend";
 import { ensureUserByEmail } from "@/lib/auth/ensure-user";
+import {
+  consumeRateLimit,
+  MAGIC_LINK_LIMIT,
+  MAGIC_LINK_WINDOW_SECONDS,
+  magicLinkRateLimitKey,
+} from "@/lib/auth/rate-limit";
 import { isDevHeaderAuthEnabled } from "@/lib/auth/dev-header-auth";
+import { escapeHtml, sendResendEmail } from "@/lib/email/resend";
 import { getPool, withTransaction } from "@/lib/db/connection";
 import { logger } from "@/lib/logger";
 
@@ -88,25 +95,15 @@ if (magicLinkConfigured) {
       normalizeIdentifier: (identifier: string) => identifier.trim().toLowerCase(),
       async sendVerificationRequest({ identifier, url, provider }) {
         const { host } = new URL(url);
-        const res = await fetch("https://api.resend.com/emails", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${provider.apiKey}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            from: provider.from,
+        await sendResendEmail(
+          {
             to: identifier,
             subject: `Sign in to Orbit (${host})`,
             text: `Sign in to Orbit\n${url}\n\n`,
-            html: `<p><a href="${url}">Sign in to Orbit</a></p>`,
-          }),
-        });
-        if (!res.ok) {
-          const body = await res.text();
-          logger.error("Resend magic-link failed", { status: res.status, body });
-          throw new Error("Email send failed");
-        }
+            html: `<p><a href="${escapeHtml(url)}">Sign in to Orbit</a></p>`,
+          },
+          { apiKey: provider.apiKey, from: provider.from },
+        );
       },
     }),
   );
@@ -123,6 +120,27 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       if (email?.verificationRequest) {
         const address = user?.email?.trim().toLowerCase();
         if (!address) return false;
+        // Refuse floods before a users row is created or a mail is sent.
+        try {
+          const limit = await consumeRateLimit({
+            key: magicLinkRateLimitKey(address),
+            limit: MAGIC_LINK_LIMIT,
+            windowSeconds: MAGIC_LINK_WINDOW_SECONDS,
+          });
+          if (!limit.allowed) {
+            logger.warn("Magic-link rate limit hit", {
+              hits: limit.hits,
+              retryAfterSeconds: limit.retryAfterSeconds,
+            });
+            return false;
+          }
+        } catch (error: unknown) {
+          // Fail closed: no counter, no mail.
+          logger.error("Magic-link rate limit check failed", {
+            error: error instanceof Error ? error.message : "unknown",
+          });
+          return false;
+        }
         await ensureUserByEmail({ email: address });
         return true;
       }

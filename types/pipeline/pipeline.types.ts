@@ -85,6 +85,8 @@ export interface PipelineRunListItem {
   cronBatchId: string | null;
   errorCode: string | null;
   reasonCode: string | null;
+  /** Short truncated text for an error or abandoned run. Never shown raw in the UI. */
+  errorMessage: string | null;
   /** C(0): bank balances at the start of the projection. */
   cashCents: number | null;
   triggeredByUserId: string | null;
@@ -127,6 +129,14 @@ export const pipelineRunIdParamSchema = z.object({ id: entityIdSchema });
 
 export interface PipelineRunResponse {
   run: PipelineRunListItem;
+}
+
+/** One tenant with the day its published numbers are from. Input to the catch-up selector. */
+export interface TenantSnapshotRow {
+  id: string;
+  timezone: string;
+  /** `allowance_snapshots.as_of_date`. Null when the tenant has never published. */
+  snapshotAsOfDate: string | null;
 }
 
 /** Per-tick counters stored on `cron_batches`. */

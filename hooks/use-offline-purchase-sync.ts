@@ -35,6 +35,7 @@ export function useOfflinePurchaseSync(): void {
               amountCents: item.amountCents,
               idempotencyKey: item.idempotencyKey,
               memo: item.memo,
+              bookedDate: item.bookedDate,
             });
           },
           isPurchaseRejection,

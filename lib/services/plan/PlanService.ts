@@ -6,11 +6,18 @@ import { effectiveInflowDate, loadTenantHolidays } from "@/lib/calendar/inflow-d
 import { todayInTimezone } from "@/lib/calendar/dates";
 import { runEvaluationPipeline } from "@/lib/pipeline/run-evaluation";
 import { BaseService } from "@/lib/services/base/BaseService";
+import {
+  ConflictError,
+  NotFoundError,
+} from "@/lib/errors/service-errors";
 import type {
   EnvelopePayload,
+  EnvelopeRemovalResult,
   PlanDto,
   PlanPaydayDto,
   ProposalDto,
+  ScheduleMutationResult,
+  UpdateScheduleBody,
 } from "@/types/plan/plan.types";
 
 export class PlanService extends BaseService {
@@ -32,21 +39,28 @@ export class PlanService extends BaseService {
         `SELECT id, name, tier_category, priority_order, current_balance::text,
                 target_cap::text, monthly_installment::text
          FROM envelopes
-         WHERE tenant_id = $1
+         WHERE tenant_id = $1 AND archived_at IS NULL
          ORDER BY tier_category, priority_order`,
         [tenantId],
       );
 
       // A bill's due date comes from its outflow schedule.
-      const dueDates = await client.query<{ envelope_id: string; next_due_date: string }>(
-        `SELECT envelope_id, MIN(next_due_date)::text AS next_due_date
+      // The earliest active schedule per bill is the one a payment settles.
+      const dueDates = await client.query<{
+        envelope_id: string;
+        id: string;
+        amount: string;
+        next_due_date: string;
+      }>(
+        `SELECT DISTINCT ON (envelope_id) envelope_id, id, amount::text,
+                next_due_date::text AS next_due_date
          FROM scheduled_schedules
          WHERE tenant_id = $1 AND direction = 'outflow' AND is_active = TRUE
            AND envelope_id IS NOT NULL
-         GROUP BY envelope_id`,
+         ORDER BY envelope_id, next_due_date ASC, id ASC`,
         [tenantId],
       );
-      const dueByEnvelope = new Map(dueDates.rows.map((r) => [r.envelope_id, r.next_due_date]));
+      const dueByEnvelope = new Map(dueDates.rows.map((r) => [r.envelope_id, r]));
 
       const mapped = envelopes.rows.map((row) => ({
         id: row.id,
@@ -57,7 +71,11 @@ export class PlanService extends BaseService {
         targetCapCents: row.target_cap === null ? null : toCents(row.target_cap),
         monthlyInstallmentCents:
           row.monthly_installment === null ? null : toCents(row.monthly_installment),
-        nextDueDate: dueByEnvelope.get(row.id) ?? null,
+        nextDueDate: dueByEnvelope.get(row.id)?.next_due_date ?? null,
+        scheduleId: dueByEnvelope.get(row.id)?.id ?? null,
+        dueAmountCents: dueByEnvelope.has(row.id)
+          ? toCents(dueByEnvelope.get(row.id)?.amount ?? "0")
+          : null,
       }));
 
       const spending = mapped.find((e) => e.tierCategory === "discretionary") ?? null;
@@ -217,7 +235,7 @@ export class PlanService extends BaseService {
       async (client) => {
         const existing = await client.query<{ id: string }>(
           `SELECT id FROM envelopes
-           WHERE tenant_id = $1 AND tier_category = $2
+           WHERE tenant_id = $1 AND tier_category = $2 AND archived_at IS NULL
            ORDER BY priority_order ASC`,
           [input.tenantId, input.tierCategory],
         );
@@ -267,7 +285,8 @@ export class PlanService extends BaseService {
         async (client) => {
           const existing = await client.query<{ id: string; tier_category: string }>(
             `SELECT id, tier_category FROM envelopes
-             WHERE id = $1 AND tenant_id = $2 AND tier_category IN ('fixed', 'sinking')`,
+             WHERE id = $1 AND tenant_id = $2 AND tier_category IN ('fixed', 'sinking')
+               AND archived_at IS NULL`,
             [input.envelopeId, input.tenantId],
           );
           if (!existing.rows[0]) {
@@ -346,6 +365,129 @@ export class PlanService extends BaseService {
         return { proposalId: result.rows[0].id };
       },
     );
+  }
+
+  /**
+   * Take a bill or goal off the Plan. Owner and admin only.
+   * - Its schedules turn off, so nothing is funded or projected for it any more.
+   * - With nothing set aside, the envelope is archived and leaves the Plan.
+   * - A bill that still holds money stays (schedules off only) so no cents vanish.
+   * - A goal that still holds money cannot be removed: it has no schedule to turn off.
+   * Spending is never removable, and neither is the goal Spending sweeps into.
+   */
+  async removeEnvelope(input: {
+    tenantId: string;
+    userId: string;
+    role: MembershipRole;
+    envelopeId: string;
+  }): Promise<EnvelopeRemovalResult> {
+    if (!canConfigure(input.role)) {
+      throw new Error("Forbidden");
+    }
+    return withTransaction({ tenantId: input.tenantId, userId: input.userId }, async (client) => {
+      const found = await client.query<{
+        id: string;
+        tier_category: "fixed" | "sinking";
+        current_balance: string;
+      }>(
+        `SELECT id, tier_category, current_balance::text
+         FROM envelopes
+         WHERE id = $1 AND tenant_id = $2 AND tier_category IN ('fixed', 'sinking')
+           AND archived_at IS NULL
+         FOR UPDATE`,
+        [input.envelopeId, input.tenantId],
+      );
+      const row = found.rows[0];
+      if (!row) throw new NotFoundError();
+
+      const sweepTarget = await client.query(
+        `SELECT 1 FROM envelopes WHERE tenant_id = $1 AND sweep_envelope_id = $2 LIMIT 1`,
+        [input.tenantId, input.envelopeId],
+      );
+      if (sweepTarget.rows.length > 0) {
+        throw new ConflictError("Spending sweeps into this goal, so it can't be removed.");
+      }
+
+      const balanceCents = toCents(row.current_balance);
+      if (balanceCents > 0 && row.tier_category === "sinking") {
+        throw new ConflictError("This goal still has money set aside. Spend or lower it first.");
+      }
+
+      await client.query(
+        `UPDATE scheduled_schedules SET is_active = FALSE
+         WHERE tenant_id = $1 AND envelope_id = $2 AND is_active = TRUE`,
+        [input.tenantId, input.envelopeId],
+      );
+
+      const archived = balanceCents === 0;
+      if (archived) {
+        await client.query(
+          `UPDATE envelopes SET archived_at = NOW() WHERE id = $1 AND tenant_id = $2`,
+          [input.envelopeId, input.tenantId],
+        );
+      } else {
+        // The waterfall tops a bill up to its cap when it has no schedule. Clear the cap so a
+        // removed bill that still holds money is not funded again.
+        await client.query(
+          `UPDATE envelopes SET target_cap = NULL WHERE id = $1 AND tenant_id = $2`,
+          [input.envelopeId, input.tenantId],
+        );
+      }
+
+      await runEvaluationPipeline(client, {
+        tenantId: input.tenantId,
+        userId: input.userId,
+        trigger: "sync",
+      });
+      this.logInfo("Envelope removed", { id: input.envelopeId, archived });
+      return { id: input.envelopeId, archived };
+    });
+  }
+
+  /** Change a schedule's amount, next date, or repeat rule. Owner and admin only. */
+  async updateSchedule(input: {
+    tenantId: string;
+    userId: string;
+    role: MembershipRole;
+    scheduleId: string;
+    changes: UpdateScheduleBody;
+  }): Promise<ScheduleMutationResult> {
+    if (!canConfigure(input.role)) {
+      throw new Error("Forbidden");
+    }
+    return withTransaction({ tenantId: input.tenantId, userId: input.userId }, async (client) => {
+      const existing = await client.query<{ id: string }>(
+        `SELECT id FROM scheduled_schedules
+         WHERE id = $1 AND tenant_id = $2 AND is_active = TRUE
+         FOR UPDATE`,
+        [input.scheduleId, input.tenantId],
+      );
+      if (!existing.rows[0]) throw new NotFoundError();
+
+      const { amountCents, nextDueDate, recurrenceRrule } = input.changes;
+      await client.query(
+        `UPDATE scheduled_schedules
+         SET amount = COALESCE($3::numeric, amount),
+             next_due_date = COALESCE($4::date, next_due_date),
+             recurrence_rrule = COALESCE($5, recurrence_rrule)
+         WHERE id = $1 AND tenant_id = $2`,
+        [
+          input.scheduleId,
+          input.tenantId,
+          amountCents === undefined ? null : fromCents(amountCents),
+          nextDueDate ?? null,
+          recurrenceRrule ?? null,
+        ],
+      );
+
+      await runEvaluationPipeline(client, {
+        tenantId: input.tenantId,
+        userId: input.userId,
+        trigger: "sync",
+      });
+      this.logInfo("Schedule updated", { id: input.scheduleId });
+      return { id: input.scheduleId };
+    });
   }
 
   async resolveProposal(input: {

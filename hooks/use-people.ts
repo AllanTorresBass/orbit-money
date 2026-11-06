@@ -20,8 +20,8 @@ export function useInvitePerson() {
   const { handleCrudError, notifySuccess } = useGlobalErrorHandler();
   return useMutation({
     mutationFn: (body: InviteBody) => api.invitePerson(body),
-    onSuccess: async () => {
-      notifySuccess("Invited");
+    onSuccess: async (result) => {
+      notifySuccess(result.emailed ? "Invite emailed" : "Invited");
       await queryClient.invalidateQueries({ queryKey: queryKeys.people.all });
     },
     onError: (error: unknown) => {

@@ -26,6 +26,7 @@ interface RunRow {
   cron_batch_id: string | null;
   error_code: string | null;
   reason_code: string | null;
+  error_message: string | null;
   cash_cents: string | null;
   triggered_by_user_id: string | null;
 }
@@ -41,7 +42,7 @@ interface StepRowSql {
 
 const RUN_COLUMNS = `id, trigger, as_of_date::text, started_at, finished_at, status,
   forecast_stale, cuts_applied, o_unfunded::text, s_daily::text, s_today::text,
-  n_p, sweep_incomplete, cron_batch_id, error_code, reason_code, cash_cents::text,
+  n_p, sweep_incomplete, cron_batch_id, error_code, reason_code, error_message, cash_cents::text,
   triggered_by_user_id`;
 
 function mapRun(row: RunRow): PipelineRunListItem {
@@ -62,6 +63,7 @@ function mapRun(row: RunRow): PipelineRunListItem {
     cronBatchId: row.cron_batch_id,
     errorCode: row.error_code,
     reasonCode: row.reason_code,
+    errorMessage: row.error_message,
     // BIGINT arrives as a string; cents stay well inside Number's exact range.
     cashCents: row.cash_cents === null ? null : Number(row.cash_cents),
     triggeredByUserId: row.triggered_by_user_id,
@@ -124,10 +126,18 @@ export class PipelineService extends BaseService {
         error_count: number;
         skipped_count: number;
       }>(
-        `SELECT id, started_at, finished_at, due_count, ok_count, error_count, skipped_count
-         FROM cron_batches
-         ORDER BY started_at DESC
+        // The newest tick that ran a midnight evaluation for THIS tenant. The newest batch
+        // overall may not have touched it, and its counts would say nothing about this household.
+        `SELECT b.id, b.started_at, b.finished_at, b.due_count, b.ok_count, b.error_count,
+                b.skipped_count
+         FROM cron_batches b
+         WHERE EXISTS (
+           SELECT 1 FROM pipeline_runs r
+           WHERE r.cron_batch_id = b.id AND r.tenant_id = $1 AND r.trigger = 'midnight'
+         )
+         ORDER BY b.started_at DESC
          LIMIT 1`,
+        [input.tenantId],
       );
       const batchRow = batchResult.rows[0];
       const latestBatch: CronBatchSummary | null = batchRow

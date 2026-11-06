@@ -3,6 +3,7 @@ import {
   beginPipelineRun,
   discardPipelineRun,
   persistFailedPipelineRun,
+  stampPipelineRunFinished,
   type PipelineRunContext,
 } from "@/lib/pipeline/telemetry";
 
@@ -19,6 +20,7 @@ export interface WithPipelineRunInput {
  * Open a `running` run on its own connection, then do the money work.
  * - Rejected requests (a `ServiceError`) leave no run: nothing was evaluated.
  * - Any other throw is recorded as an `error` run, so a rollback never erases the evidence.
+ * - On success `finished_at` is stamped after the money callback returns, on its own connection.
  * - A crash before either leaves the run `running` for the abandoned sweep to close.
  * `work` receives the context to pass on as `runId` with `runPreStarted: true`.
  */
@@ -28,7 +30,10 @@ export async function withPipelineRun<T>(
 ): Promise<T> {
   const run = await beginPipelineRun(input);
   try {
-    return await work(run);
+    const result = await work(run);
+    // The money transaction has committed. Record when the run really ended.
+    await stampPipelineRunFinished(run.runId);
+    return result;
   } catch (error: unknown) {
     if (isServiceError(error)) {
       await discardPipelineRun(run.runId);

@@ -11,7 +11,11 @@ export interface MeDto {
   name: string;
   tenantName: string;
   tenantType: TenantType;
+  /** IANA zone of the current household. The household's "today" follows it. */
+  timezone: string;
   canSpend: boolean;
+  /** Every household this person is an active member of, for the switcher. */
+  tenants: TenantChoice[];
 }
 
 export interface TenantChoice {

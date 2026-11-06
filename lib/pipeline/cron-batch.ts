@@ -50,3 +50,33 @@ export async function finishCronBatch(
     });
   }
 }
+
+/**
+ * Close batches a crashed or timed-out tick never finished. A batch still open after
+ * `minutes` can never finish on its own. `excludeId` keeps the current tick's row open.
+ * A failure is logged, never thrown. Returns how many rows were closed.
+ */
+export async function finishStaleCronBatches(input: {
+  minutes: number;
+  excludeId?: string;
+}): Promise<number> {
+  try {
+    return await withTransaction(null, async (client) => {
+      await client.query("SELECT set_config('app.bypass_rls', 'on', true)");
+      const result = await client.query(
+        `UPDATE cron_batches
+         SET finished_at = NOW(), meta = meta || '{"abandoned": true}'::jsonb
+         WHERE finished_at IS NULL
+           AND started_at < NOW() - make_interval(mins => $1::int)
+           AND ($2::uuid IS NULL OR id <> $2::uuid)`,
+        [input.minutes, input.excludeId ?? null],
+      );
+      return result.rowCount ?? 0;
+    });
+  } catch (error: unknown) {
+    logger.error("Could not close stale cron batches", {
+      error: error instanceof Error ? error.message : "unknown",
+    });
+    return 0;
+  }
+}

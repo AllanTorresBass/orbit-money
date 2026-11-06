@@ -66,7 +66,7 @@ function SignInForm() {
         callbackUrl: searchParams.get("callbackUrl") ?? "/today",
       });
       if (result?.error) {
-        setNotice({ tone: "short", text: "We could not send that link. Try again in a moment." });
+        setNotice({ tone: "short", text: "We could not send that link. Wait a few minutes and try again." });
         return;
       }
       setNotice({

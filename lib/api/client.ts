@@ -14,16 +14,20 @@ import type {
   AssignableRole,
   InviteBody,
   InviteResult,
+  InviteSentResult,
   PeopleListResponse,
   PendingInvitesResponse,
 } from "@/types/people/people.types";
 import type {
   EnvelopeMutationResult,
   EnvelopePayload,
+  EnvelopeRemovalResult,
   PlanDto,
   ProposalDecision,
   ProposalListResponse,
   ReorderEnvelopesBody,
+  ScheduleMutationResult,
+  UpdateScheduleBody,
 } from "@/types/plan/plan.types";
 import type {
   CreatePurchaseBody,
@@ -130,7 +134,7 @@ export const api = {
     }),
   getPeople: () => apiFetch<PeopleListResponse>("/api/v1/people"),
   invitePerson: (body: InviteBody) =>
-    apiFetch<InviteResult>("/api/v1/people/invite", {
+    apiFetch<InviteSentResult>("/api/v1/people/invite", {
       method: "POST",
       body: JSON.stringify(body),
     }),
@@ -158,6 +162,13 @@ export const api = {
     }),
   updateEnvelope: (id: string, body: EnvelopePayload) =>
     apiFetch<EnvelopeMutationResult>(`/api/v1/envelopes/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+  removeEnvelope: (id: string) =>
+    apiFetch<EnvelopeRemovalResult>(`/api/v1/envelopes/${id}`, { method: "DELETE" }),
+  updateSchedule: (id: string, body: UpdateScheduleBody) =>
+    apiFetch<ScheduleMutationResult>(`/api/v1/schedules/${id}`, {
       method: "PATCH",
       body: JSON.stringify(body),
     }),

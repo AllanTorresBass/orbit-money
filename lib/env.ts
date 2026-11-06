@@ -13,6 +13,8 @@ const envSchema = z
     AUTH_RESEND_KEY: z.string().optional(),
     AUTH_EMAIL_FROM: z.string().email().optional(),
     NEXT_PUBLIC_MAGIC_LINK: z.enum(["true", "false"]).optional(),
+    /** Public origin (https://app.example.com). Makes invite links absolute in email and the UI. */
+    APP_URL: z.string().url().optional(),
   })
   .superRefine((value, ctx) => {
     if (value.NODE_ENV === "production" && (!value.AUTH_SECRET || value.AUTH_SECRET.length < 16)) {
@@ -75,6 +77,7 @@ export function getEnv(): Env {
     AUTH_RESEND_KEY: process.env.AUTH_RESEND_KEY,
     AUTH_EMAIL_FROM: process.env.AUTH_EMAIL_FROM,
     NEXT_PUBLIC_MAGIC_LINK: process.env.NEXT_PUBLIC_MAGIC_LINK,
+    APP_URL: process.env.APP_URL || undefined,
   });
 
   if (!parsed.success) {

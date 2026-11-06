@@ -49,6 +49,14 @@ export interface InviteResult {
   status: MembershipStatus;
 }
 
+/** Result of inviting someone. The hint is always present so the sender can pass it on by hand. */
+export interface InviteSentResult extends InviteResult {
+  /** Link or path the invited person opens after signing in. Absolute when `APP_URL` is set. */
+  inviteHint: string;
+  /** True when Orbit emailed the invite. False when mail is not configured or the send failed. */
+  emailed: boolean;
+}
+
 /** A household the signed-in person was invited to and has not joined yet. */
 export interface PendingInviteDto {
   tenantId: string;

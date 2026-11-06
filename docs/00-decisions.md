@@ -194,3 +194,13 @@ If the minimum moved to another day and is still below the floor, apply that sam
 **Why.** A universal `$200` floor is wrong for someone whose balance is `$80` and unnecessary for someone who keeps a month of cash. The gap on the worst day, spread over the days that led to it, is the cut that lifts that day to the floor. One confirmation projection catches the case where a different day becomes the new minimum. Looping a fixed three times does not know when it is done.
 
 **Rejected.** Defaulting every tenant to `$200`. A three-iteration search. Covering the breach by reducing a fixed envelope.
+
+## Deferred product choices
+
+These are decided later, on purpose. Do not build them inside an unrelated change.
+
+- **Bank feed.** Continuity stays manual (Record payday, Mark bill paid) until a vendor is chosen. Bank balances stay separate from envelope balances.
+- **Billing.** The owner-only Billing section is a placeholder; Orbit charges nothing. No plans, invoices, or payment vendor yet.
+- **shadcn / design system.** Screens keep the current hand-built Orbit components. Adopting shadcn is a visual migration with its own pass.
+- **Envelope access overrides UI.** `envelope_access_overrides` exists in the schema and can narrow a role. There is no screen to edit it yet.
+- **Releasing a removed bill's leftover money.** Removing a bill that still holds money takes it off payday and clears its cap; the cents stay in the envelope. A way to spend or release them is not designed.

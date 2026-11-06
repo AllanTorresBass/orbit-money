@@ -5,7 +5,14 @@ import { withTransaction } from "@/lib/db/connection";
 import { logger } from "@/lib/logger";
 import { selectTenantBodySchema } from "@/types/me/me.types";
 
-/** Remember which household a multi-household person is using. Requires an active membership. */
+/**
+ * Remember which household a multi-household person is using. Requires an active membership.
+ *
+ * The Auth.js token pins `tenantId` once, at sign-in, and this app never re-mints it. The
+ * `orbit_tenant` cookie set here is the source of truth after a switch: `resolveIdentity`
+ * prefers it over the token (lib/auth/tenant-pick.ts), and falls back to the token only when
+ * the cookie names a household the person has left.
+ */
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
     const identity = await resolveIdentity();

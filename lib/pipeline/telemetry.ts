@@ -198,13 +198,17 @@ export async function finishPipelineRun(
     sweepIncomplete: boolean;
     errorCode?: string;
     reasonCode?: PipelineReasonCode | string;
+    /** Short, PII-free text for an error. Truncated to the column width. */
+    errorMessage?: string;
     /** C(0): bank balances at the start of the projection. */
     cashCents?: number | null;
   },
 ): Promise<void> {
   await client.query(
+    // clock_timestamp(), not NOW(): NOW() is the start of the money transaction, so a long
+    // run would look instant. `stampPipelineRunFinished` moves it past the commit.
     `UPDATE pipeline_runs SET
-       finished_at = NOW(),
+       finished_at = clock_timestamp(),
        status = $2,
        forecast_stale = $3,
        cuts_applied = $4,
@@ -215,7 +219,8 @@ export async function finishPipelineRun(
        sweep_incomplete = $9,
        error_code = $10,
        reason_code = $11,
-       cash_cents = $12
+       cash_cents = $12,
+       error_message = $13
      WHERE id = $1`,
     [
       input.runId,
@@ -230,8 +235,55 @@ export async function finishPipelineRun(
       input.errorCode ?? null,
       input.reasonCode ?? input.errorCode ?? null,
       input.cashCents ?? null,
+      input.errorMessage === undefined ? null : truncateErrorMessage(input.errorMessage),
     ],
   );
+}
+
+/** Width of `pipeline_runs.error_message`. */
+export const ERROR_MESSAGE_MAX_LENGTH = 256;
+
+/** One line, no control characters, cut to the column width. */
+export function truncateErrorMessage(message: string): string {
+  const oneLine = message.replace(/\s+/g, " ").trim();
+  return oneLine.length <= ERROR_MESSAGE_MAX_LENGTH
+    ? oneLine
+    : `${oneLine.slice(0, ERROR_MESSAGE_MAX_LENGTH - 1)}…`;
+}
+
+/** The message of a thrown value, or a generic line when it carries none. */
+export function errorMessageOf(error: unknown): string {
+  if (error instanceof Error && error.message.trim() !== "") return error.message;
+  return "Pipeline failed";
+}
+
+/**
+ * Stamp the true finish time once the money callback has returned and committed, on its own
+ * connection. The in-transaction stamp only knows when the pipeline last ran SQL; this one
+ * includes the commit. A run that is still `running` (a replay about to be discarded) is skipped.
+ * A failure is logged, never thrown: the money is already settled.
+ */
+export async function stampPipelineRunFinished(runId: string): Promise<void> {
+  let client: PoolClient | null = null;
+  try {
+    client = await getPool().connect();
+    await client.query("BEGIN");
+    await client.query("SELECT set_config('app.bypass_rls', 'on', true)");
+    await client.query(
+      `UPDATE pipeline_runs SET finished_at = clock_timestamp()
+       WHERE id = $1 AND status <> 'running'`,
+      [runId],
+    );
+    await client.query("COMMIT");
+  } catch (error: unknown) {
+    if (client) await client.query("ROLLBACK").catch(() => undefined);
+    logger.error("Could not stamp pipeline run finish time", {
+      runId,
+      error: error instanceof Error ? error.message : "unknown",
+    });
+  } finally {
+    client?.release();
+  }
 }
 
 /** Short, PII-free code for `pipeline_runs.error_code` (VARCHAR(64)). */
@@ -280,6 +332,7 @@ export async function persistFailedPipelineRun(
       nP: null,
       sweepIncomplete: false,
       errorCode,
+      errorMessage: errorMessageOf(input.error),
     });
     await client.query("COMMIT");
   } catch (persistError: unknown) {
@@ -312,10 +365,11 @@ export async function closeAbandonedPipelineRuns(
 ): Promise<number> {
   const result = await client.query(
     `UPDATE pipeline_runs
-     SET status = 'error', finished_at = NOW(), error_code = 'abandoned',
-         reason_code = 'abandoned'
+     SET status = 'error', finished_at = clock_timestamp(), error_code = 'abandoned',
+         reason_code = 'abandoned',
+         error_message = $2
      WHERE status = 'running' AND started_at < NOW() - make_interval(mins => $1::int)`,
-    [minutes],
+    [minutes, truncateErrorMessage(`Run did not finish within ${minutes} minutes and was closed.`)],
   );
   return result.rowCount ?? 0;
 }

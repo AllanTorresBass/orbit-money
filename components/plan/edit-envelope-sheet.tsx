@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useGlobalErrorHandler } from "@/hooks/use-global-error-handler";
-import { useUpdateEnvelope } from "@/hooks/use-plan-mutations";
+import { useRemoveEnvelope, useUpdateEnvelope } from "@/hooks/use-plan-mutations";
 import { cn, dollarsFromCents } from "@/lib/utils";
 import { parseDollarsToCents } from "@/lib/utils/money-input";
 import type { EditableEnvelope } from "@/types/plan/plan.types";
@@ -23,6 +23,8 @@ export function EditEnvelopeSheet({
   className,
 }: EditEnvelopeSheetProps) {
   const update = useUpdateEnvelope();
+  const remove = useRemoveEnvelope(envelope.tierCategory);
+  const [confirmingRemove, setConfirmingRemove] = useState(false);
   const { handleCrudError } = useGlobalErrorHandler();
   const isFixed = envelope.tierCategory === "fixed";
   const [name, setName] = useState(envelope.name);
@@ -129,6 +131,38 @@ export function EditEnvelopeSheet({
         >
           {mode === "suggest" ? "Suggest this change" : "Save"}
         </button>
+        {mode === "save" ? (
+          confirmingRemove ? (
+            <div className="mt-4 flex flex-wrap items-baseline gap-x-4 gap-y-2 text-[15px]">
+              <span className="text-[var(--orbit-secondary)]">
+                Remove {envelope.name} from your plan?
+              </span>
+              <button
+                type="button"
+                disabled={remove.isPending}
+                className="text-[var(--orbit-short)] disabled:opacity-60"
+                onClick={() => remove.mutate(envelope.id, { onSuccess: onClose })}
+              >
+                Yes, remove
+              </button>
+              <button
+                type="button"
+                className="text-[var(--orbit-secondary)]"
+                onClick={() => setConfirmingRemove(false)}
+              >
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              className="mt-4 text-[15px] text-[var(--orbit-secondary)]"
+              onClick={() => setConfirmingRemove(true)}
+            >
+              {isFixed ? "Remove this bill" : "Remove this goal"}
+            </button>
+          )
+        ) : null}
       </div>
     </div>
   );

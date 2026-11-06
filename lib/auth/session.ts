@@ -3,6 +3,7 @@ import { auth } from "@/auth";
 import { isDevHeaderAuthEnabled } from "@/lib/auth/dev-header-auth";
 import { withTransaction } from "@/lib/db/connection";
 import type { MembershipRole } from "@/lib/auth/permissions";
+import { pickTenantForSession, type RequestIdentity } from "@/lib/auth/tenant-pick";
 import { TenantSelectionRequiredError } from "@/lib/auth/tenant-selection";
 import type { TenantChoice } from "@/types/me/me.types";
 import type { TenantType } from "@/types/tenant/tenant.types";
@@ -26,6 +27,8 @@ export interface AppSession {
   name: string;
   tenantName: string;
   tenantType: TenantType;
+  /** IANA zone that owns the household's calendar (D10). */
+  timezone: string;
 }
 
 async function loadMembership(userId: string, tenantId: string): Promise<AppSession | null> {
@@ -37,9 +40,11 @@ async function loadMembership(userId: string, tenantId: string): Promise<AppSess
       name: string;
       tenant_name: string;
       tenant_type: TenantType;
+      timezone: string;
       status: string;
     }>(
-      `SELECT m.role, m.status, u.email, u.name, t.name AS tenant_name, t.tenant_type
+      `SELECT m.role, m.status, u.email, u.name, t.name AS tenant_name, t.tenant_type,
+              t.timezone
        FROM tenant_memberships m
        JOIN users u ON u.id = m.user_id
        JOIN tenants t ON t.id = m.tenant_id
@@ -60,14 +65,9 @@ async function loadMembership(userId: string, tenantId: string): Promise<AppSess
       name: row.name,
       tenantName: row.tenant_name,
       tenantType: row.tenant_type,
+      timezone: row.timezone,
     };
   });
-}
-
-interface RequestIdentity {
-  userId: string;
-  /** Explicit tenant from the signed-in session or the dev header. Null when none was named. */
-  tenantId: string | null;
 }
 
 /** Who is calling, without checking membership. Cookie session wins over dev headers. */
@@ -76,7 +76,11 @@ export async function resolveIdentity(): Promise<RequestIdentity | null> {
   if (nextAuth?.userId) {
     // Cookie session wins. Do not let request headers impersonate another user.
     const picked = (await cookies()).get(TENANT_COOKIE)?.value;
-    return { userId: nextAuth.userId, tenantId: nextAuth.tenantId || picked || null };
+    return pickTenantForSession({
+      userId: nextAuth.userId,
+      sessionTenantId: nextAuth.tenantId,
+      cookieTenantId: picked,
+    });
   }
 
   if (!isDevHeaderAuthEnabled()) {
@@ -92,7 +96,7 @@ export async function resolveIdentity(): Promise<RequestIdentity | null> {
   return { userId: headerUserId, tenantId: h.get("x-tenant-id") || null };
 }
 
-async function listActiveTenants(userId: string): Promise<TenantChoice[]> {
+export async function listActiveTenants(userId: string): Promise<TenantChoice[]> {
   return withTransaction(null, async (client) => {
     await client.query("SELECT set_config('app.bypass_rls', 'on', true)");
     const result = await client.query<{ tenant_id: string; tenant_name: string }>(
@@ -119,7 +123,9 @@ export async function resolveSession(): Promise<AppSession | null> {
   }
 
   if (identity.tenantId) {
-    return loadMembership(identity.userId, identity.tenantId);
+    const chosen = await loadMembership(identity.userId, identity.tenantId);
+    if (chosen || !identity.fallbackTenantId) return chosen;
+    return loadMembership(identity.userId, identity.fallbackTenantId);
   }
 
   const tenants = await listActiveTenants(identity.userId);

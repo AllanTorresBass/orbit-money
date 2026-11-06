@@ -84,7 +84,7 @@ async function loadEnvelopes(client: PoolClient, tenantId: string): Promise<Enve
   const result = await client.query(
     `SELECT id, name, tier_category, priority_order, current_balance, target_cap,
             monthly_installment, rollover_policy, sweep_envelope_id
-     FROM envelopes WHERE tenant_id = $1`,
+     FROM envelopes WHERE tenant_id = $1 AND archived_at IS NULL`,
     [tenantId],
   );
   return result.rows.map(mapEnvelope);
@@ -239,7 +239,11 @@ async function followingInflowOfSchedule(
   return row ? followingInflowOf(row, today, holidays) : null;
 }
 
-/** Spend rate the last cycle published, kept for future days while payday is unsettled. */
+/**
+ * Spend rate the last cycle published, kept for future days while payday is unsettled.
+ * Run history is pruned after 90 days, so when no earlier run is left the snapshot's own
+ * rate stands in. Zero only when neither exists.
+ */
 async function loadPriorCycleBurnCents(
   client: PoolClient,
   tenantId: string,
@@ -253,7 +257,13 @@ async function loadPriorCycleBurnCents(
      LIMIT 1`,
     [tenantId, today],
   );
-  return result.rows[0] ? toCents(result.rows[0].s_daily) : 0;
+  if (result.rows[0]) return toCents(result.rows[0].s_daily);
+
+  const snapshot = await client.query<{ s_daily: string }>(
+    `SELECT s_daily::text FROM allowance_snapshots WHERE tenant_id = $1`,
+    [tenantId],
+  );
+  return snapshot.rows[0] ? toCents(snapshot.rows[0].s_daily) : 0;
 }
 
 const SAVEPOINT = "orbit_pipeline_run";

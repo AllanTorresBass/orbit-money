@@ -17,6 +17,7 @@ import {
 import { isApiError } from "@/lib/api/api-error";
 import { discardPoisonPurchases } from "@/lib/offline/purchase-queue";
 import { cn, formatMoney, formatShortDate } from "@/lib/utils";
+import { isAllowanceFromEarlierDay, STALE_NUMBERS_SENTENCE } from "@/lib/utils/allowance-staleness";
 import { tenantTypeLabel } from "@/lib/utils/display-labels";
 import { fetchErrorMessage } from "@/lib/utils/handle-fetch-error";
 
@@ -114,6 +115,7 @@ export function TodayScreen({ className }: TodayScreenProps) {
   // First evening: no bills yet. The banner is only for people who can add one.
   const showFirstEvening = canConfigure && plan.data !== undefined && plan.data.bills.length === 0;
 
+  const earlierDay = isAllowanceFromEarlierDay(data.asOfDate, me.data?.timezone);
   const spendingBelowZero = data.spendingBalanceCents < 0;
   const firstRun = !data.hasPurchaseHistory;
   const bannerDate = data.breachDate ?? data.warningDate;
@@ -160,6 +162,8 @@ export function TodayScreen({ className }: TodayScreenProps) {
             </button>
           </div>
         ) : null}
+
+        {earlierDay ? <InlineBanner>{STALE_NUMBERS_SENTENCE}</InlineBanner> : null}
 
         {online && data.forecastStale ? (
           <InlineBanner>Ahead could not refresh. You are seeing the last one.</InlineBanner>

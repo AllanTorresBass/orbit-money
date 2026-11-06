@@ -6,6 +6,11 @@ export const createPurchaseBodySchema = z.object({
   amountCents: z.number().int().positive(),
   idempotencyKey: z.string().min(1).max(200).optional(),
   memo: z.string().max(200).optional(),
+  /**
+   * Tenant-local date the money was spent. An offline purchase carries the day it was made,
+   * not the day it reached the server. Not after tomorrow in the household's timezone.
+   */
+  bookedDate: isoDateSchema.optional(),
 });
 export type CreatePurchaseBody = z.infer<typeof createPurchaseBodySchema>;
 
@@ -46,6 +51,8 @@ export interface QueuedPurchase {
   amountCents: number;
   idempotencyKey: string;
   memo?: string;
+  /** Local date (YYYY-MM-DD) the purchase was made. Absent on items saved before this field. */
+  bookedDate?: string;
   createdAt: string;
   /** Send attempts the server turned away. */
   failures: number;

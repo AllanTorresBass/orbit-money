@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { AddEnvelopeSheet } from "@/components/plan/add-envelope-sheet";
 import { EditEnvelopeSheet } from "@/components/plan/edit-envelope-sheet";
+import { EditPaydaySheet } from "@/components/plan/edit-payday-sheet";
+import { MarkBillPaidSheet } from "@/components/plan/mark-bill-paid-sheet";
 import { PlanSkeleton } from "@/components/plan/plan-skeleton";
 import { SpendingExplainSheet } from "@/components/plan/spending-explain-sheet";
 import { InlineBanner } from "@/components/shell/inline-banner";
@@ -30,6 +32,8 @@ export function PlanScreen({ className }: PlanScreenProps) {
   const [addKind, setAddKind] = useState<EditableTier | null>(null);
   const [editing, setEditing] = useState<EditableEnvelope | null>(null);
   const [explainOpen, setExplainOpen] = useState(false);
+  const [payingBill, setPayingBill] = useState<PlanEnvelopeDto | null>(null);
+  const [editingPayday, setEditingPayday] = useState(false);
   const reordering = reorder.isPending;
 
   const canConfigure = me.data?.role === "owner" || me.data?.role === "admin";
@@ -82,6 +86,15 @@ export function PlanScreen({ className }: PlanScreenProps) {
         <div className="mt-1 text-[15px] text-[var(--orbit-secondary)]">
           <p>Payday on {formatShortDate(payday.date)}</p>
           <p>{formatMoney(payday.amountCents)} arrives</p>
+          {canConfigure ? (
+            <button
+              type="button"
+              className="mt-1 text-[15px] text-[var(--orbit-ink)]"
+              onClick={() => setEditingPayday(true)}
+            >
+              Edit payday
+            </button>
+          ) : null}
         </div>
       ) : (
         <p className="mt-1 text-[15px] text-[var(--orbit-secondary)]">Where payday goes.</p>
@@ -138,6 +151,16 @@ export function PlanScreen({ className }: PlanScreenProps) {
                   {setAside(b).text}
                 </span>
               </button>
+              {canConfigure && b.scheduleId ? (
+                <button
+                  type="button"
+                  aria-label={`Mark ${b.name} paid`}
+                  className="shrink-0 px-1 text-[15px] text-[var(--orbit-ink)]"
+                  onClick={() => setPayingBill(b)}
+                >
+                  Paid
+                </button>
+              ) : null}
               {canConfigure && bills.length > 1 ? (
                 <div className="flex shrink-0 gap-1">
                   <button
@@ -294,6 +317,14 @@ export function PlanScreen({ className }: PlanScreenProps) {
           mode={canSuggest ? "suggest" : "save"}
           onClose={() => setAddKind(null)}
         />
+      ) : null}
+
+      {payingBill ? (
+        <MarkBillPaidSheet key={payingBill.id} bill={payingBill} onClose={() => setPayingBill(null)} />
+      ) : null}
+
+      {editingPayday && payday ? (
+        <EditPaydaySheet payday={payday} onClose={() => setEditingPayday(false)} />
       ) : null}
 
       {editing ? (

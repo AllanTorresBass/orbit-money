@@ -3,7 +3,12 @@
 import { usePipelineRuns } from "@/hooks/use-pipeline-runs";
 import { cn, formatShortDate } from "@/lib/utils";
 import { fetchErrorMessage } from "@/lib/utils/handle-fetch-error";
-import { formatDuration, runDurationMs, runStatusLabel } from "@/lib/utils/pipeline-labels";
+import {
+  formatDuration,
+  runDurationMs,
+  runReasonLabel,
+  runStatusLabel,
+} from "@/lib/utils/pipeline-labels";
 
 export interface ActivitySectionProps {
   /** Only owners and admins can read activity. */
@@ -49,6 +54,7 @@ export function ActivitySection({ canManage, className }: ActivitySectionProps) 
             <ul className="mt-2 space-y-3">
               {runs.map((run) => {
                 const status = runStatusLabel(run);
+                const reason = runReasonLabel(run);
                 return (
                   <li
                     key={run.id}
@@ -70,6 +76,11 @@ export function ActivitySection({ canManage, className }: ActivitySectionProps) 
                     >
                       {status.label} · {formatDuration(runDurationMs(run))}
                     </span>
+                    {reason ? (
+                      <span className="basis-full text-[15px] text-[var(--orbit-secondary)]">
+                        {reason}
+                      </span>
+                    ) : null}
                   </li>
                 );
               })}

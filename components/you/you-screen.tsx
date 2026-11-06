@@ -62,6 +62,14 @@ export function YouScreen({ className }: YouScreenProps) {
         <p className="mt-8 text-[var(--orbit-secondary)]">Loading…</p>
       )}
 
+      {me.data && me.data.tenants.length > 1 ? (
+        <TenantPicker
+          variant="inline"
+          tenants={me.data.tenants}
+          currentTenantId={me.data.tenantId}
+        />
+      ) : null}
+
       <BankSection canManage={canManage} />
 
       <SuggestionsSection canManage={canManage} />

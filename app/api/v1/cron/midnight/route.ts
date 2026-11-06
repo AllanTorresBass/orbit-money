@@ -1,13 +1,27 @@
 import { NextRequest, NextResponse } from "next/server";
 import { localHourInTimezone, todayInTimezone } from "@/lib/calendar/dates";
+import { pruneRateLimits } from "@/lib/auth/rate-limit";
 import { withTransaction } from "@/lib/db/connection";
 import { getEnv } from "@/lib/env";
 import { logger } from "@/lib/logger";
-import { finishCronBatch, startCronBatch } from "@/lib/pipeline/cron-batch";
+import {
+  finishCronBatch,
+  finishStaleCronBatches,
+  startCronBatch,
+} from "@/lib/pipeline/cron-batch";
 import { runEvaluationPipeline } from "@/lib/pipeline/run-evaluation";
+import {
+  CATCH_UP_LIMIT,
+  loadTenantSnapshotRows,
+  selectStaleTenantIds,
+} from "@/lib/pipeline/stale-tenants";
 import { closeAbandonedPipelineRuns, prunePipelineRuns } from "@/lib/pipeline/telemetry";
 import { withPipelineRun } from "@/lib/pipeline/with-run";
 import { mapWithConcurrency } from "@/lib/utils/promise-pool";
+import type { TenantSnapshotRow } from "@/types/pipeline/pipeline.types";
+
+/** Vercel function budget for one tick: hour-0 tenants plus the capped catch-up set. */
+export const maxDuration = 60;
 
 const SYSTEM_USER_ID = "00000000-0000-0000-0000-000000000000";
 /** Tenants evaluated at once. Each holds one pooled connection for its transaction. */
@@ -15,6 +29,9 @@ const TENANT_CONCURRENCY = 4;
 const RUN_RETENTION_DAYS = 90;
 /** A run still `running` after this long crashed without cleanup. */
 const ABANDONED_RUN_MINUTES = 60;
+/** A batch still unfinished after this long belongs to a tick that crashed or timed out. */
+const STALE_BATCH_MINUTES = 120;
+const RATE_LIMIT_RETENTION_SECONDS = 24 * 60 * 60;
 
 interface TenantResult {
   tenantId: string;
@@ -40,12 +57,12 @@ async function runMidnight(request: NextRequest): Promise<NextResponse> {
     const forceAll = request.nextUrl.searchParams.get("all") === "1";
     const now = new Date();
 
+    // Close ticks that never finished, so Activity does not show them as running forever.
+    const closedStaleAtStart = await finishStaleCronBatches({ minutes: STALE_BATCH_MINUTES });
+
     const tenants = await withTransaction(null, async (client) => {
       await client.query("SELECT set_config('app.bypass_rls', 'on', true)");
-      const result = await client.query<{ id: string; timezone: string }>(
-        `SELECT id, timezone FROM tenants`,
-      );
-      return result.rows;
+      return loadTenantSnapshotRows(client);
     });
 
     // Group by timezone so we only evaluate tenants whose local hour is midnight.
@@ -63,10 +80,19 @@ async function runMidnight(request: NextRequest): Promise<NextResponse> {
       }
     }
 
+    // Catch-up: tenants a missed hour-0 tick left on yesterday's numbers (or none), capped.
+    const catchUpIds = forceAll
+      ? []
+      : selectStaleTenantIds(tenants, now, { limit: CATCH_UP_LIMIT, alreadyDue: dueTenantIds });
+    for (const id of catchUpIds) dueTenantIds.add(id);
+
     const batchMeta = {
       tenantCount: tenants.length,
       timezoneCount: byTimezone.size,
       forceAll,
+      catchUp: catchUpIds.length > 0,
+      catchUpCount: catchUpIds.length,
+      closedStaleAtStart,
     };
     const cronBatchId = await startCronBatch({ dueCount: dueTenantIds.size, meta: batchMeta });
 
@@ -76,9 +102,10 @@ async function runMidnight(request: NextRequest): Promise<NextResponse> {
       dueCount: dueTenantIds.size,
       timezoneCount: byTimezone.size,
       forceAll,
+      catchUpCount: catchUpIds.length,
     });
 
-    const results = await mapWithConcurrency<{ id: string; timezone: string }, TenantResult>(
+    const results = await mapWithConcurrency<TenantSnapshotRow, TenantResult>(
       tenants,
       TENANT_CONCURRENCY,
       async (tenant) => {
@@ -129,19 +156,25 @@ async function runMidnight(request: NextRequest): Promise<NextResponse> {
       });
       pruned = housekeeping.pruned;
       closed = housekeeping.closed;
+      // Magic-link counters older than a day carry no information.
+      await pruneRateLimits(RATE_LIMIT_RETENTION_SECONDS);
     } catch (error: unknown) {
       logger.error("Pipeline retention failed", {
         cronBatchId,
         error: error instanceof Error ? error.message : "unknown",
       });
     }
+    const closedStaleAtEnd = await finishStaleCronBatches({
+      minutes: STALE_BATCH_MINUTES,
+      excludeId: cronBatchId,
+    });
     const okCount = results.filter((r) => r.ok && !r.skipped).length;
     const errorCount = results.filter((r) => !r.ok).length;
     const skippedCount = results.filter((r) => r.skipped).length;
     await finishCronBatch(
       cronBatchId,
       { dueCount: dueTenantIds.size, okCount, errorCount, skippedCount },
-      { pruned, closedAbandoned: closed },
+      { pruned, closedAbandoned: closed, closedStaleAtEnd, catchUpCount: catchUpIds.length },
     );
     logger.info("Midnight cron done", {
       cronBatchId,
@@ -162,6 +195,8 @@ async function runMidnight(request: NextRequest): Promise<NextResponse> {
       skippedCount,
       pruned,
       closedAbandoned: closed,
+      catchUpCount: catchUpIds.length,
+      closedStaleBatches: closedStaleAtStart + closedStaleAtEnd,
       results,
     });
   } catch (error: unknown) {

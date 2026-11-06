@@ -15,6 +15,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         amountCents: body.amountCents,
         idempotencyKey: body.idempotencyKey,
         memo: body.memo,
+        bookedDate: body.bookedDate,
       }),
   });
 }

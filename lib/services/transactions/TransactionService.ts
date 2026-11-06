@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { PoolClient } from "pg";
+import { addDays } from "@/lib/calendar/dates";
 import { canConfigure, canSpend, type MembershipRole } from "@/lib/auth/permissions";
 import { lockTenantForUpdate } from "@/lib/db/advisory-lock";
 import { withTransaction } from "@/lib/db/connection";
@@ -66,7 +67,9 @@ export class TransactionService extends BaseService {
     amountCents: number;
     idempotencyKey?: string;
     memo?: string;
-    /** Test/support override for the tenant-local booked date. */
+    /** Tenant-local date of the purchase. Not after tomorrow in the tenant's timezone. */
+    bookedDate?: string;
+    /** Test/support override for the tenant-local "today". */
     asOfDate?: string;
   }): Promise<TransactionResult> {
     if (!canSpend(input.role)) {
@@ -80,6 +83,7 @@ export class TransactionService extends BaseService {
       amountCents: input.amountCents,
       idempotencyKey: input.idempotencyKey ?? randomUUID(),
       memo: input.memo ?? "Purchase",
+      bookedDate: input.bookedDate,
       asOfDate: input.asOfDate,
     });
   }
@@ -172,7 +176,9 @@ export class TransactionService extends BaseService {
 
             const today = run.asOfDate;
             const bookedDate = input.bookedDate ?? today;
-            if (bookedDate > today) {
+            // A phone a day ahead of the household's calendar may book one day forward.
+            const latestBookedDate = input.kind === "purchase" ? addDays(today, 1) : today;
+            if (bookedDate > latestBookedDate) {
               throw new ValidationError("The date can't be in the future.");
             }
 

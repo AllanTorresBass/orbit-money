@@ -113,6 +113,37 @@ describe("offline purchase queue", () => {
     expect(listQueuedPurchases(alex)).toEqual([]);
   });
 
+  it("stores the booked date when saving and sends it on flush", async () => {
+    enqueuePurchase(alex, { amountCents: 100, idempotencyKey: "k1", bookedDate: "2026-11-04" });
+    enqueuePurchase(alex, { amountCents: 200, idempotencyKey: "k2" });
+    const [first, second] = listQueuedPurchases(alex);
+    expect(first.bookedDate).toBe("2026-11-04");
+    // Without a household date the device's local day is fixed at save time.
+    expect(second.bookedDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+
+    const sent: Array<string | undefined> = [];
+    await flushPurchaseQueue(
+      alex,
+      async (item) => {
+        sent.push(item.bookedDate);
+      },
+      isPurchaseRejection,
+    );
+    expect(sent[0]).toBe("2026-11-04");
+    expect(sent[1]).toBe(second.bookedDate);
+  });
+
+  it("reads an item saved before bookedDate existed without a date", () => {
+    const key = "orbit.offline.purchases:t1:alex";
+    window.localStorage.setItem(
+      key,
+      JSON.stringify([
+        { id: "i1", amountCents: 50, idempotencyKey: "old", createdAt: "2026-11-01T00:00:00Z" },
+      ]),
+    );
+    expect(listQueuedPurchases(alex)[0].bookedDate).toBeUndefined();
+  });
+
   it("treats sign-in and rate-limit errors as retryable, not as rejections", () => {
     expect(isPurchaseRejection(new ApiError("x", { status: 401 }))).toBe(false);
     expect(isPurchaseRejection(new ApiError("x", { status: 429 }))).toBe(false);
