@@ -1,40 +1,282 @@
 @import "tailwindcss";
 
+/*
+  Orbit palette. Five core colors: mist (paper), white (surface), midnight (ink),
+  Orbit Blue (brand), and one muted secondary. Fine / low / short are status
+  colors that only ever tint a sentence, a dot, or a line.
+*/
 :root {
-  --orbit-paper: #f4f1ea;
-  --orbit-ink: #1c1917;
-  --orbit-secondary: #6f6a63;
-  --orbit-line: #e6e1d8;
-  --orbit-fine: #1f6b4a;
-  --orbit-low: #8a5a12;
-  --orbit-short: #8e2f2f;
+  --orbit-paper: #f3f5fa;
+  --orbit-surface: #ffffff;
+  --orbit-ink: #0b1226;
+  --orbit-secondary: #5b6478;
+  --orbit-line: #e2e6f0;
+  --orbit-brand: #1f4fff;
+  --orbit-brand-ink: #ffffff;
+  --orbit-brand-soft: #e6ecff;
+  --orbit-fine: #0a8a5e;
+  --orbit-low: #a85f08;
+  --orbit-short: #c0392b;
+  --orbit-shadow: 0 1px 2px rgb(11 18 38 / 0.04), 0 8px 24px -12px rgb(11 18 38 / 0.12);
   --background: var(--orbit-paper);
   --foreground: var(--orbit-ink);
+  color-scheme: light;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --orbit-paper: #141311;
-    --orbit-ink: #f4f1ea;
-    --orbit-secondary: #a39e96;
-    --orbit-line: #2a2724;
-    --orbit-fine: #8fcbb0;
-    --orbit-low: #e2c08a;
-    --orbit-short: #f0b4b4;
-    --background: var(--orbit-paper);
-    --foreground: var(--orbit-ink);
-  }
+/* Dark is driven by the `dark` class that next-themes sets on <html>
+   (system preference by default, or the user's explicit choice). */
+:root.dark {
+  --orbit-paper: #070b16;
+  --orbit-surface: #0f1626;
+  --orbit-ink: #eef1fa;
+  --orbit-secondary: #98a1b8;
+  --orbit-line: #1d2640;
+  --orbit-brand: #6f90ff;
+  --orbit-brand-ink: #060a18;
+  --orbit-brand-soft: #14204a;
+  --orbit-fine: #4fe0a8;
+  --orbit-low: #f0b35a;
+  --orbit-short: #ff8f80;
+  --orbit-shadow: 0 1px 0 rgb(255 255 255 / 0.03) inset, 0 12px 32px -16px rgb(0 0 0 / 0.7);
+  color-scheme: dark;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-paper: var(--orbit-paper);
+  --color-surface: var(--orbit-surface);
+  --color-ink: var(--orbit-ink);
+  --color-secondary: var(--orbit-secondary);
+  --color-line: var(--orbit-line);
+  --color-brand: var(--orbit-brand);
+  --color-brand-ink: var(--orbit-brand-ink);
+  --color-brand-soft: var(--orbit-brand-soft);
+  --color-fine: var(--orbit-fine);
+  --color-low: var(--orbit-low);
+  --color-short: var(--orbit-short);
   --font-sans: var(--font-orbit-sans);
-  --font-serif: var(--font-orbit-serif);
+  --font-mono: var(--font-orbit-mono);
+  --font-display: var(--font-orbit-sans);
+}
+
+:root {
+  --font-orbit-display: var(--font-orbit-sans);
+}
+
+html {
+  background: var(--orbit-paper);
+  -webkit-tap-highlight-color: transparent;
 }
 
 body {
   background: var(--orbit-paper);
   color: var(--orbit-ink);
   font-family: var(--font-orbit-sans), system-ui, sans-serif;
+  font-feature-settings: "tnum" 0, "ss01" 1;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: var(--orbit-brand);
+  color: var(--orbit-brand-ink);
+}
+
+:focus-visible {
+  outline: 2px solid var(--orbit-brand);
+  outline-offset: 3px;
+  border-radius: 8px;
+}
+
+@layer components {
+  /* Primary action. Brand fill, generous touch target, physical press. */
+  .orbit-btn {
+    display: inline-flex;
+    min-height: 3.5rem;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    border-radius: 1rem;
+    background: var(--orbit-brand);
+    color: var(--orbit-brand-ink);
+    font-size: 1.0625rem;
+    font-weight: 550;
+    letter-spacing: -0.01em;
+    box-shadow: 0 10px 24px -12px var(--orbit-brand);
+    transition:
+      transform 160ms cubic-bezier(0.2, 0.8, 0.2, 1),
+      box-shadow 160ms ease,
+      opacity 160ms ease;
+  }
+  .orbit-btn:hover {
+    box-shadow: 0 14px 28px -12px var(--orbit-brand);
+  }
+  .orbit-btn:active {
+    transform: scale(0.98);
+  }
+  .orbit-btn:disabled {
+    opacity: 0.55;
+    box-shadow: none;
+  }
+
+  /* Secondary action. Quiet outline that reads as a sibling of the primary. */
+  .orbit-btn-quiet {
+    display: inline-flex;
+    min-height: 3.5rem;
+    align-items: center;
+    justify-content: center;
+    border-radius: 1rem;
+    border: 1px solid var(--orbit-line);
+    background: var(--orbit-surface);
+    color: var(--orbit-ink);
+    font-size: 1.0625rem;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+    transition:
+      transform 160ms cubic-bezier(0.2, 0.8, 0.2, 1),
+      border-color 160ms ease;
+  }
+  .orbit-btn-quiet:hover {
+    border-color: var(--orbit-brand);
+  }
+  .orbit-btn-quiet:active {
+    transform: scale(0.98);
+  }
+  .orbit-btn-quiet:disabled {
+    opacity: 0.55;
+  }
+
+  /* Text-sized action inside a row or paragraph. */
+  .orbit-link {
+    color: var(--orbit-brand);
+    font-weight: 500;
+    transition: opacity 160ms ease;
+  }
+  .orbit-link:hover {
+    opacity: 0.75;
+  }
+
+  /* Grouped list on a soft surface. Rows inside divide with a hairline. */
+  .orbit-group {
+    overflow: hidden;
+    border-radius: 1.25rem;
+    background: var(--orbit-surface);
+    border: 1px solid var(--orbit-line);
+    box-shadow: var(--orbit-shadow);
+  }
+  .orbit-group > li + li,
+  .orbit-group > div + div {
+    border-top: 1px solid var(--orbit-line);
+  }
+
+  /* Text field on a soft surface with a brand focus ring. */
+  .orbit-field {
+    display: block;
+    width: 100%;
+    border-radius: 0.875rem;
+    border: 1px solid var(--orbit-line);
+    background: var(--orbit-surface);
+    padding: 0.875rem 1rem;
+    font-size: 1.0625rem;
+    color: var(--orbit-ink);
+    outline: none;
+    transition:
+      border-color 160ms ease,
+      box-shadow 160ms ease;
+  }
+  .orbit-field::placeholder {
+    color: var(--orbit-secondary);
+    opacity: 0.7;
+  }
+  .orbit-field:focus {
+    border-color: var(--orbit-brand);
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--orbit-brand) 22%, transparent);
+  }
+
+  /* Bottom sheet: dimmed, blurred backdrop and a panel that rises into place. */
+  .orbit-sheet-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    background: color-mix(in srgb, var(--orbit-paper) 40%, rgb(4 8 20 / 0.55));
+    backdrop-filter: blur(6px);
+    animation: orbit-fade 200ms ease-out both;
+  }
+  .orbit-sheet {
+    position: relative;
+    width: 100%;
+    max-width: 28rem;
+    border-radius: 1.75rem 1.75rem 0 0;
+    border: 1px solid var(--orbit-line);
+    border-bottom: 0;
+    background: var(--orbit-surface);
+    padding: 1.75rem 1.5rem calc(1.5rem + env(safe-area-inset-bottom));
+    box-shadow: 0 -24px 60px -20px rgb(4 8 20 / 0.45);
+    animation: orbit-rise 320ms cubic-bezier(0.2, 0.9, 0.2, 1) both;
+  }
+  .orbit-sheet::before {
+    content: "";
+    position: absolute;
+    top: 0.5rem;
+    left: 50%;
+    width: 2.5rem;
+    height: 0.25rem;
+    transform: translateX(-50%);
+    border-radius: 999px;
+    background: var(--orbit-line);
+  }
+
+  /* Small label above a block of content. */
+  .orbit-eyebrow {
+    font-family: var(--font-orbit-mono), ui-monospace, monospace;
+    font-size: 0.75rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--orbit-secondary);
+  }
+
+  /* Staggered page entrance. Set --i on each child. */
+  .orbit-reveal {
+    animation: orbit-reveal 520ms cubic-bezier(0.2, 0.9, 0.2, 1) both;
+    animation-delay: calc(var(--i, 0) * 60ms);
+  }
+}
+
+@keyframes orbit-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes orbit-rise {
+  from {
+    transform: translateY(32px);
+    opacity: 0;
+  }
+}
+
+@keyframes orbit-reveal {
+  from {
+    transform: translateY(10px);
+    opacity: 0;
+  }
+}
+
+@keyframes orbit-draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-delay: 0ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }

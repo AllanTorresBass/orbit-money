@@ -1,21 +1,29 @@
-import type { Metadata } from "next";
-import { DM_Sans, Literata } from "next/font/google";
+import type { Metadata, Viewport } from "next";
+import { Geist, Geist_Mono } from "next/font/google";
 import { AppProviders } from "@/components/providers/app-providers";
 import "./globals.css";
 
-const orbitSans = DM_Sans({
+const orbitSans = Geist({
   subsets: ["latin"],
   variable: "--font-orbit-sans",
 });
 
-const orbitSerif = Literata({
+const orbitMono = Geist_Mono({
   subsets: ["latin"],
-  variable: "--font-orbit-serif",
+  variable: "--font-orbit-mono",
 });
 
 export const metadata: Metadata = {
   title: "Orbit",
   description: "What you can spend today.",
+};
+
+export const viewport: Viewport = {
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#f3f5fa" },
+    { media: "(prefers-color-scheme: dark)", color: "#070b16" },
+  ],
+  colorScheme: "light dark",
 };
 
 export default function RootLayout({
@@ -24,8 +32,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
-      <body className={`${orbitSans.variable} ${orbitSerif.variable} antialiased`}>
+    <html lang="en" className="bg-background" suppressHydrationWarning>
+      <body className={`${orbitSans.variable} ${orbitMono.variable} antialiased`}>
         <AppProviders>{children}</AppProviders>
       </body>
     </html>

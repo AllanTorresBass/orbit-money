@@ -2,9 +2,14 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { ChevronRight, Plus } from "lucide-react";
+import { OrbitMark } from "@/components/brand/orbit-mark";
+import { ThemeToggleButton } from "@/components/shell/theme-toggle";
+import { AnimatedMoney } from "@/components/shell/animated-money";
 import { InlineBanner } from "@/components/shell/inline-banner";
 import { TenantPicker } from "@/components/shell/tenant-picker";
 import { FirstEveningBanner } from "@/components/today/first-evening-banner";
+import { OrbitRing } from "@/components/today/orbit-ring";
 import { PurchaseSheet } from "@/components/today/purchase-sheet";
 import { RecordPaydaySheet } from "@/components/today/record-payday-sheet";
 import { TodaySkeleton } from "@/components/today/today-skeleton";
@@ -45,6 +50,49 @@ function offlinePurchaseSentence(count: number): string {
     : "You're offline. These purchases will save when you reconnect.";
 }
 
+function TodayHeader({
+  href,
+  name,
+  typeLabel,
+}: {
+  href: string;
+  name: string;
+  typeLabel: string | null;
+}) {
+  return (
+    <div
+      className="orbit-reveal flex items-center justify-between gap-3"
+      style={{ "--i": 0 } as React.CSSProperties}
+    >
+      <Link href={href} className="group flex min-w-0 flex-1 items-center justify-between gap-4 rounded-2xl py-1">
+        <div className="flex min-w-0 items-center gap-3">
+          <OrbitMark />
+          <div className="min-w-0">
+            <h1 className="truncate text-[19px] font-semibold leading-tight tracking-tight text-[var(--orbit-ink)]">
+              {name}
+            </h1>
+            {typeLabel ? (
+              <p className="text-[13px] text-[var(--orbit-secondary)]">{typeLabel}</p>
+            ) : null}
+          </div>
+        </div>
+        <ChevronRight
+          className="size-5 shrink-0 text-[var(--orbit-secondary)] transition-transform duration-200 group-hover:translate-x-0.5"
+          aria-hidden="true"
+        />
+      </Link>
+      <ThemeToggleButton className="shrink-0" />
+    </div>
+  );
+}
+
+/** Larger amounts get a smaller numeral so the figure stays inside the ring. */
+function heroSizeClass(text: string): string {
+  if (text.length <= 7) return "text-[56px]";
+  if (text.length <= 9) return "text-[46px]";
+  return "text-[38px]";
+}
+
 export function TodayScreen({ className }: TodayScreenProps) {
   const me = useMe();
   const allowance = useAllowance();
@@ -74,15 +122,8 @@ export function TodayScreen({ className }: TodayScreenProps) {
   // Created, but the first number has not been worked out yet.
   if (me.data && isApiError(allowance.error) && allowance.error.status === 404) {
     return (
-      <div className={cn("mx-auto min-h-screen max-w-md px-6 pb-28 pt-8", className)}>
-        <Link href={youHref} className="block">
-          <h1 className="font-[family-name:var(--font-orbit-serif)] text-[28px] text-[var(--orbit-ink)]">
-            {me.data.tenantName}
-          </h1>
-          {typeLabel ? (
-            <p className="text-[15px] text-[var(--orbit-secondary)]">{typeLabel}</p>
-          ) : null}
-        </Link>
+      <div className={cn("mx-auto min-h-screen max-w-md px-5 pb-32 pt-6", className)}>
+        <TodayHeader href={youHref} name={me.data.tenantName} typeLabel={typeLabel} />
         <InlineBanner className="mt-6">
           This is your first day. Orbit is still working out your number. Check back in a moment.
         </InlineBanner>
@@ -106,10 +147,15 @@ export function TodayScreen({ className }: TodayScreenProps) {
 
   const data = allowance.data;
   const pastPace = data.sTodayCents < 0;
-  const heroColor =
-    pastPace || data.breachDate
-      ? "text-[var(--orbit-ink)]"
-      : "text-[var(--orbit-fine)]";
+  const heroColor = pastPace ? "text-[var(--orbit-short)]" : "text-[var(--orbit-ink)]";
+  const heroText = formatMoney(Math.abs(data.sTodayCents), { alwaysCents: true });
+  const ringProgress = pastPace
+    ? 1
+    : data.sDailyCents > 0
+      ? data.sTodayCents / data.sDailyCents
+      : data.sTodayCents > 0
+        ? 1
+        : 0;
 
   // Owners and admins settle paydays. Due today or overdue means the deposit is still to record.
   const canConfigure = me.data?.role === "owner" || me.data?.role === "admin";
@@ -130,17 +176,10 @@ export function TodayScreen({ className }: TodayScreenProps) {
       : null;
 
   return (
-    <div className={cn("mx-auto min-h-screen max-w-md px-6 pb-28 pt-8", className)}>
-      <Link href={youHref} className="block">
-        <h1 className="font-[family-name:var(--font-orbit-serif)] text-[28px] text-[var(--orbit-ink)]">
-          {data.tenantName}
-        </h1>
-        {typeLabel ? (
-          <p className="text-[15px] text-[var(--orbit-secondary)]">{typeLabel}</p>
-        ) : null}
-      </Link>
+    <div className={cn("mx-auto min-h-screen max-w-md px-5 pb-32 pt-6", className)}>
+      <TodayHeader href={youHref} name={data.tenantName} typeLabel={typeLabel} />
 
-      <div className="mt-6 space-y-4">
+      <div className="mt-6 space-y-3">
         {!online ? (
           <InlineBanner>
             {queuedPurchases > 0
@@ -199,44 +238,58 @@ export function TodayScreen({ className }: TodayScreenProps) {
         ) : null}
       </div>
 
-      <p className="mt-10 text-[15px] text-[var(--orbit-secondary)]">
-        {pastPace ? "Past today's pace" : "You can spend"}
-      </p>
-      <p
-        className={cn(
-          "mt-1 font-[family-name:var(--font-orbit-serif)] text-[72px] leading-none tabular-nums",
-          heroColor,
-        )}
+      <section
+        aria-label="Today's number"
+        className="orbit-reveal mt-8"
+        style={{ "--i": 1 } as React.CSSProperties}
       >
-        {formatMoney(Math.abs(data.sTodayCents), { alwaysCents: true })}
-      </p>
-      <p className="mt-3 text-[15px] text-[var(--orbit-secondary)]">
-        {pastPace
-          ? `Tomorrow's pace will be ${formatMoney(data.tomorrowBurnCents, { alwaysCents: true })}.`
-          : data.nextPayday
-            ? `Until payday on ${formatShortDate(data.nextPayday)}.`
-            : "Add a payday to see a daily amount."}
-      </p>
+        <OrbitRing progress={ringProgress} tone={pastPace ? "short" : "brand"}>
+          <p className="text-[14px] text-[var(--orbit-secondary)]">
+            {pastPace ? "Past today's pace" : "You can spend"}
+          </p>
+          <p
+            className={cn(
+              "mt-1 font-[family-name:var(--font-orbit-display)] font-semibold leading-none tracking-tight",
+              heroSizeClass(heroText),
+              heroColor,
+            )}
+          >
+            <AnimatedMoney cents={Math.abs(data.sTodayCents)} alwaysCents />
+          </p>
+          {!pastPace && !data.breachDate ? (
+            <p className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-[color-mix(in_srgb,var(--orbit-fine)_14%,transparent)] px-3 py-1 text-[13px] font-medium text-[var(--orbit-fine)]">
+              <span className="size-1.5 rounded-full bg-[var(--orbit-fine)]" aria-hidden="true" />
+              On pace
+            </p>
+          ) : null}
+        </OrbitRing>
+        <p className="mx-auto mt-6 max-w-[18rem] text-balance text-center text-[15px] leading-relaxed text-[var(--orbit-secondary)]">
+          {pastPace
+            ? `Tomorrow's pace will be ${formatMoney(data.tomorrowBurnCents, { alwaysCents: true })}.`
+            : data.nextPayday
+              ? `Until payday on ${formatShortDate(data.nextPayday)}.`
+              : "Add a payday to see a daily amount."}
+        </p>
+      </section>
 
-      {me.data?.canSpend ? (
-        <button
-          type="button"
-          onClick={() => setSheetOpen(true)}
-          className="mt-10 w-full bg-[var(--orbit-ink)] py-3 text-[17px] text-[var(--orbit-paper)]"
-        >
-          Add a purchase
-        </button>
-      ) : null}
+      <div className="orbit-reveal mt-8 space-y-3" style={{ "--i": 2 } as React.CSSProperties}>
+        {me.data?.canSpend ? (
+          <button type="button" onClick={() => setSheetOpen(true)} className="orbit-btn w-full">
+            <Plus className="size-5" strokeWidth={2.25} aria-hidden="true" />
+            Add a purchase
+          </button>
+        ) : null}
 
-      {paydayDue && payday ? (
-        <button
-          type="button"
-          onClick={() => setPaydaySheetOpen(true)}
-          className="mt-4 w-full border border-[var(--orbit-ink)] py-3 text-[17px] text-[var(--orbit-ink)]"
-        >
-          Record payday
-        </button>
-      ) : null}
+        {paydayDue && payday ? (
+          <button
+            type="button"
+            onClick={() => setPaydaySheetOpen(true)}
+            className="orbit-btn-quiet w-full"
+          >
+            Record payday
+          </button>
+        ) : null}
+      </div>
 
       {showFirstEvening && me.data ? <FirstEveningBanner tenantId={me.data.tenantId} /> : null}
 

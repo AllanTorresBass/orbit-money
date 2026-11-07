@@ -27,29 +27,29 @@ export function TenantPicker({
   const inline = variant === "inline";
 
   return (
-    <div id={id} className={cn(inline ? "mt-10" : "mx-auto max-w-md px-6 pt-10", className)}>
+    <div id={id} className={cn(inline ? "mt-10" : "mx-auto max-w-md px-5 pt-10", className)}>
       {inline ? (
         <h2 className="text-[15px] font-medium text-[var(--orbit-ink)]">Households</h2>
       ) : (
-        <h1 className="font-[family-name:var(--font-orbit-serif)] text-[28px] text-[var(--orbit-ink)]">
+        <h1 className="font-[family-name:var(--font-orbit-display)] text-[28px] font-semibold tracking-tight text-[var(--orbit-ink)]">
           Which household?
         </h1>
       )}
-      <ul className={inline ? "mt-2" : "mt-6"}>
+      <ul className={cn("orbit-group", inline ? "mt-3" : "mt-6")}>
         {tenants.map((tenant) => {
           const current = tenant.tenantId === currentTenantId;
           return (
-            <li key={tenant.tenantId} className="border-b border-[var(--orbit-line)]">
+            <li key={tenant.tenantId}>
               <button
                 type="button"
                 disabled={select.isPending || current}
                 aria-current={current ? "true" : undefined}
                 onClick={() => select.mutate(tenant.tenantId)}
-                className="flex w-full items-baseline justify-between gap-3 py-3 text-left text-[17px] text-[var(--orbit-ink)] disabled:opacity-60"
+                className="flex w-full items-center justify-between gap-3 px-4 py-4 text-left text-[17px] text-[var(--orbit-ink)] transition-colors hover:bg-[var(--orbit-brand-soft)] disabled:opacity-100"
               >
                 <span className="min-w-0 truncate">{tenant.tenantName}</span>
                 {current ? (
-                  <span className="shrink-0 text-[15px] text-[var(--orbit-secondary)]">
+                  <span className="shrink-0 rounded-full bg-[var(--orbit-brand-soft)] px-2.5 py-0.5 text-[13px] font-medium text-[var(--orbit-brand)]">
                     Current
                   </span>
                 ) : null}

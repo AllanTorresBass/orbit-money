@@ -20,20 +20,20 @@ export function SpendingExplainSheet({
 
   return (
     <div
-      className={cn("fixed inset-0 z-40 flex items-end justify-center bg-black/30", className)}
+      className={cn("orbit-sheet-backdrop", className)}
       onClick={onClose}
     >
       <div
         role="dialog"
         aria-modal="true"
         aria-label="How Spending works"
-        className="max-h-[85vh] w-full max-w-md overflow-y-auto rounded-t-2xl bg-[var(--orbit-paper)] p-6 shadow-lg"
+        className="orbit-sheet max-h-[85vh] overflow-y-auto"
         onClick={(event) => event.stopPropagation()}
       >
         <button type="button" onClick={onClose} className="text-[15px] text-[var(--orbit-secondary)]">
           Close
         </button>
-        <h2 className="mt-4 font-[family-name:var(--font-orbit-serif)] text-[28px] text-[var(--orbit-ink)]">
+        <h2 className="mt-4 font-[family-name:var(--font-orbit-display)] text-[28px] font-semibold tracking-tight text-[var(--orbit-ink)]">
           Spending
         </h2>
         <p className="mt-2 text-[17px] tabular-nums text-[var(--orbit-ink)]">
