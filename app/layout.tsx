@@ -33,7 +33,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className="bg-background" suppressHydrationWarning>
-      <body className={`${orbitSans.variable} ${orbitMono.variable} antialiased`}>
+      <body
+        className={`${orbitSans.variable} ${orbitMono.variable} antialiased`}
+        suppressHydrationWarning
+      >
         <AppProviders>{children}</AppProviders>
       </body>
     </html>
