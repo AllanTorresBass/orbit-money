@@ -1,6 +1,7 @@
 "use client";
 
-import { cn, formatMoney } from "@/lib/utils";
+import { OrbitSheet } from "@/components/shell/orbit-sheet";
+import { formatMoney } from "@/lib/utils";
 
 export interface SpendingExplainSheetProps {
   open: boolean;
@@ -19,23 +20,7 @@ export function SpendingExplainSheet({
   if (!open) return null;
 
   return (
-    <div
-      className={cn("orbit-sheet-backdrop", className)}
-      onClick={onClose}
-    >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label="How Spending works"
-        className="orbit-sheet max-h-[85vh] overflow-y-auto"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <button type="button" onClick={onClose} className="text-[15px] text-[var(--orbit-secondary)]">
-          Close
-        </button>
-        <h2 className="mt-4 font-[family-name:var(--font-orbit-display)] text-[28px] font-semibold tracking-tight text-[var(--orbit-ink)]">
-          Spending
-        </h2>
+    <OrbitSheet title="Spending" onClose={onClose} className={className}>
         <p className="mt-2 text-[17px] tabular-nums text-[var(--orbit-ink)]">
           {formatMoney(balanceCents)} left this payday
         </p>
@@ -50,7 +35,6 @@ export function SpendingExplainSheet({
             unspent moves to your Goals.
           </p>
         </div>
-      </div>
-    </div>
+    </OrbitSheet>
   );
 }

@@ -1,6 +1,5 @@
 "use client";
 
-import { ChevronLeft } from "lucide-react";
 import Link from "next/link";
 import { signOut } from "next-auth/react";
 import { ActorSwitcher } from "@/components/shell/actor-switcher";
@@ -33,14 +32,7 @@ export function YouScreen({ className }: YouScreenProps) {
 
   return (
     <div className={cn("mx-auto min-h-screen max-w-md px-5 pb-28 pt-8", className)}>
-      <Link
-        href="/today"
-        className="orbit-link -ml-1 inline-flex items-center gap-1 rounded-full px-1 py-1 text-[15px]"
-      >
-        <ChevronLeft className="size-4" aria-hidden="true" />
-        Back
-      </Link>
-      <h1 className="mt-4 font-[family-name:var(--font-orbit-display)] text-[32px] font-semibold leading-tight tracking-tight text-[var(--orbit-ink)]">
+      <h1 className="font-[family-name:var(--font-orbit-display)] text-[32px] font-semibold leading-tight tracking-tight text-[var(--orbit-ink)]">
         You
       </h1>
 

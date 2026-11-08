@@ -156,7 +156,7 @@ function CreateForm() {
         <>
           <button
             type="button"
-            className="text-[15px] text-[var(--orbit-secondary)]"
+            className="orbit-dismiss"
             onClick={() => {
               void goTo(1);
             }}
@@ -257,7 +257,7 @@ function CreateForm() {
         <>
           <button
             type="button"
-            className="text-[15px] text-[var(--orbit-secondary)]"
+            className="orbit-dismiss"
             onClick={() => {
               void goTo(2);
             }}
