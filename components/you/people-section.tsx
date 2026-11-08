@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { ChoiceGroup } from "@/components/shared/choice-group";
 import {
   useAcceptInvite,
   useInvitePerson,
@@ -29,6 +30,10 @@ const ALL_ASSIGNABLE: AssignableRole[] = ["advisor", "member", "admin", "read_on
 
 function isManager(role: PersonRole): boolean {
   return role === "owner" || role === "admin";
+}
+
+function isAssignableRole(role: PersonRole): role is AssignableRole {
+  return role === "admin" || role === "member" || role === "advisor" || role === "read_only";
 }
 
 interface InviteHintNoteProps {
@@ -154,30 +159,29 @@ export function PeopleSection({ me, className }: PeopleSectionProps) {
                     </button>
                   ) : null}
 
-                  {editable ? (
-                    <div className="mt-2 flex flex-wrap items-baseline gap-x-4 gap-y-2">
-                      <label className="text-[13px] text-[var(--orbit-secondary)]">
-                        Role
-                        <select
-                          value={person.role}
-                          disabled={updateRole.isPending}
-                          onChange={(e) =>
-                            updateRole.mutate({
-                              userId: person.userId,
-                              role: e.target.value as AssignableRole,
-                            })
-                          }
-                          aria-label={`${person.name} role`}
-                          className="ml-2 orbit-field"
-                        >
-                          {assignable.map((r) => (
-                            <option key={r} value={r}>
-                              {ROLE_LABELS[r]}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
+                  {editable && isAssignableRole(person.role) ? (
+                    <ChoiceGroup
+                      className="mt-2"
+                      label={`${person.name} role`}
+                      value={person.role}
+                      options={assignable.map((role) => ({
+                        value: role,
+                        label: ROLE_LABELS[role],
+                        hint: ROLE_DESCRIPTIONS[role],
+                      }))}
+                      onChange={(role) => {
+                        if (role === person.role || updateRole.isPending) return;
+                        updateRole.mutate({ userId: person.userId, role });
+                      }}
+                    />
+                  ) : (
+                    <p className="mt-0.5 text-[13px] leading-snug text-[var(--orbit-secondary)]">
+                      {ROLE_DESCRIPTIONS[person.role]}
+                    </p>
+                  )}
 
+                  {editable ? (
+                    <div className="mt-2">
                       {confirmingId === person.userId ? (
                         <span className="flex gap-3 text-[15px]">
                           <button
@@ -221,6 +225,9 @@ export function PeopleSection({ me, className }: PeopleSectionProps) {
       {canManage ? (
         <section className="mt-8">
           <h2 className="text-[15px] font-medium text-[var(--orbit-ink)]">Invite someone</h2>
+          <p className="mt-2 text-[15px] text-[var(--orbit-secondary)]">
+            They join this household with the role you pick.
+          </p>
           <input
             value={inviteName}
             onChange={(e) => setInviteName(e.target.value)}
@@ -236,35 +243,17 @@ export function PeopleSection({ me, className }: PeopleSectionProps) {
             type="email"
             className="mt-3 w-full orbit-field"
           />
-          <ul className="mt-3" role="radiogroup" aria-label="Role">
-            {assignable.map((role) => {
-              const selected = inviteRole === role;
-              return (
-                <li key={role} className="border-b border-[var(--orbit-line)]">
-                  <button
-                    type="button"
-                    role="radio"
-                    aria-checked={selected}
-                    onClick={() => setInviteRole(role)}
-                    className="flex w-full flex-col py-2 text-left"
-                  >
-                    <span
-                      className={cn(
-                        "text-[17px]",
-                        selected ? "text-[var(--orbit-ink)]" : "text-[var(--orbit-secondary)]",
-                      )}
-                    >
-                      {ROLE_LABELS[role]}
-                      {selected ? " ✓" : ""}
-                    </span>
-                    <span className="text-[13px] text-[var(--orbit-secondary)]">
-                      {ROLE_DESCRIPTIONS[role]}
-                    </span>
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
+          <ChoiceGroup
+            className="mt-3"
+            label="Role"
+            value={inviteRole}
+            options={assignable.map((role) => ({
+              value: role,
+              label: ROLE_LABELS[role],
+              hint: ROLE_DESCRIPTIONS[role],
+            }))}
+            onChange={setInviteRole}
+          />
           <button
             type="button"
             disabled={invite.isPending}

@@ -14,7 +14,7 @@ import { useMe } from "@/hooks/use-allowance";
 import { isApiError } from "@/lib/api/api-error";
 import { isClientDevHeaderAuthEnabled } from "@/lib/auth/dev-header-auth";
 import { cn } from "@/lib/utils";
-import { roleLabel } from "@/lib/utils/display-labels";
+import { ROLE_DESCRIPTIONS, roleLabel } from "@/lib/utils/display-labels";
 import { fetchErrorMessage } from "@/lib/utils/handle-fetch-error";
 
 export interface YouScreenProps {
@@ -44,7 +44,12 @@ export function YouScreen({ className }: YouScreenProps) {
           </div>
           <div className="px-4 py-3.5">
             <dt className="text-[13px] text-[var(--orbit-secondary)]">Role</dt>
-            <dd className="mt-0.5">{roleLabel(me.data.role)}</dd>
+            <dd className="mt-0.5">
+              {roleLabel(me.data.role)}
+              <span className="mt-0.5 block text-[15px] text-[var(--orbit-secondary)]">
+                {ROLE_DESCRIPTIONS[me.data.role]}
+              </span>
+            </dd>
           </div>
           <div className="px-4 py-3.5">
             <dt className="text-[13px] text-[var(--orbit-secondary)]">Household</dt>
@@ -91,6 +96,9 @@ export function YouScreen({ className }: YouScreenProps) {
         <h2 id="you-appearance" className="text-[15px] font-medium text-[var(--orbit-ink)]">
           Appearance
         </h2>
+        <p className="mt-2 text-[15px] text-[var(--orbit-secondary)]">
+          Light, dark, or the same as this phone.
+        </p>
         <ThemeToggle className="mt-3" />
       </section>
 

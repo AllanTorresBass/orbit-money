@@ -57,6 +57,9 @@ export function BankSection({ canManage, className }: BankSectionProps) {
   return (
     <section className={cn("mt-10", className)}>
       <h2 className="text-[15px] font-medium text-[var(--orbit-ink)]">Bank</h2>
+      <p className="mt-2 text-[15px] text-[var(--orbit-secondary)]">
+        Ahead checks this balance.
+      </p>
       {accounts.isLoading ? (
         <p className="mt-2 text-[15px] text-[var(--orbit-secondary)]">Loading…</p>
       ) : accounts.isError ? (

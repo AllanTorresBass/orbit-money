@@ -27,7 +27,7 @@ If the email is new, the next screen is Create, not an error.
 
 **Step 1.** "What should we call this?" Under it: "This name sits at the top of Today. Then choose who the money is for." Placeholder "Harbor". Under the field, three quiet choices, one selected, each with one line: Personal, "Only you." Household, "People who share the money." Organization, "A team or a group." Default is Household. They can change it with a tap. The button is "Continue".
 
-**Step 2.** "When does money usually arrive?" Choices as rows, not a calendar widget first: Every week, Every two weeks, Twice a month, Every month, Once a year. Then one date: "Next time". Twice a month asks for the two days ("15th" and "Last day") instead of assuming the 1st and the 15th. Button: "Continue".
+**Step 2.** "When does money usually arrive?" Under it: "Today counts the days until the next one." The same choice list as step 1, one line each: Every week, "The same weekday." Every two weeks, "A paycheck every other week." This one starts selected. Twice a month, "Two days in the month." Every month, "One day each month." Once a year, "One day each year." Then one date: "Next time". Twice a month asks for the two days ("15th" and "Last day") instead of assuming the 1st and the 15th. Button: "Continue".
 
 **Step 3.** "About how much arrives?" One amount. Sentence: "You can fix this later. Orbit uses it to split payday." Button: "See what I can spend".
 
@@ -240,9 +240,9 @@ Casey         Advisor
 [ Invite someone ]
 ```
 
-Tapping a person offers a role change and "Remove", within what that role is allowed to do. An admin does not see a way to change the owner. The last owner cannot be removed. The screen says "Harbor needs an owner." when that is the reason a control is missing, rather than failing after a tap.
+Tapping a person offers the same choice list used on Create, and "Remove", within what that role is allowed to do. An admin does not see a way to change the owner. The last owner cannot be removed. The screen says "Harbor needs an owner." when that is the reason a control is missing, rather than failing after a tap.
 
-Invite is one email, then a role chosen from rows with one line each:
+Under "Invite someone": "They join this household with the role you pick." Then one email, then the same choice list:
 
 | Role on screen | Line |
 | --- | --- |
@@ -256,7 +256,7 @@ The button is "Send invite".
 
 ## 12. Bank
 
-**Job.** Name the accounts whose cash Ahead is watching.
+**Job.** Name the accounts whose cash Ahead is watching. Under the heading: "Ahead checks this balance."
 
 ```text
 Bank

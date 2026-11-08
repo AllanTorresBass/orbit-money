@@ -1,4 +1,5 @@
 import type { PersonRole } from "@/types/people/people.types";
+import type { Cadence } from "@/types/tenant/create-space.types";
 import type { TenantType } from "@/types/tenant/tenant.types";
 
 /** The role word a person sees. Never the stored value. */
@@ -13,6 +14,15 @@ export const ROLE_LABELS: Record<PersonRole, string> = {
 export function roleLabel(role: PersonRole): string {
   return ROLE_LABELS[role];
 }
+
+/** One line under each payday rhythm on Create. */
+export const CADENCE_HINTS: Record<Cadence, string> = {
+  "Every week": "The same weekday.",
+  "Every two weeks": "A paycheck every other week.",
+  "Twice a month": "Two days in the month.",
+  "Every month": "One day each month.",
+  "Once a year": "One day each year.",
+};
 
 /** One line per role, as shown on Invite and People. */
 export const ROLE_DESCRIPTIONS: Record<PersonRole, string> = {
