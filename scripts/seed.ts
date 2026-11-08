@@ -72,6 +72,7 @@ async function main(): Promise<void> {
     await client.query("DELETE FROM allocations WHERE tenant_id = $1", [HARBOR.tenantId]);
     await client.query("DELETE FROM transactions WHERE tenant_id = $1", [HARBOR.tenantId]);
     await client.query("DELETE FROM scheduled_schedules WHERE tenant_id = $1", [HARBOR.tenantId]);
+    await client.query("DELETE FROM cycle_sweeps WHERE tenant_id = $1", [HARBOR.tenantId]);
     await client.query("DELETE FROM envelopes WHERE tenant_id = $1", [HARBOR.tenantId]);
 
     await client.query(

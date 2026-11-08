@@ -1,4 +1,5 @@
 import { Pool, type PoolClient, type QueryResult, type QueryResultRow } from "pg";
+import { APP_SEARCH_PATH, installAppSchema } from "@/lib/db/app-schema";
 import { getEnv } from "@/lib/env";
 import { isServiceError } from "@/lib/errors/service-errors";
 import { logger } from "@/lib/logger";
@@ -7,11 +8,13 @@ let pooled: Pool | null = null;
 let unpooled: Pool | null = null;
 
 function createPool(connectionString: string): Pool {
-  return new Pool({
-    connectionString,
-    ssl: { rejectUnauthorized: false },
-    max: 10,
-  });
+  return installAppSchema(
+    new Pool({
+      connectionString,
+      ssl: { rejectUnauthorized: false },
+      max: 10,
+    }),
+  );
 }
 
 export function getPool(): Pool {
@@ -58,6 +61,8 @@ export async function withTransaction<T>(
           error: error instanceof Error ? error.message : "unknown",
         });
       }
+      // SET ROLE can replace the path chosen at BEGIN. Put orbit back in front.
+      await client.query("SELECT set_config('search_path', $1, true)", [APP_SEARCH_PATH]);
       await client.query("SELECT set_config('app.current_tenant_id', $1, true)", [
         session.tenantId,
       ]);

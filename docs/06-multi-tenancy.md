@@ -18,11 +18,13 @@ A query must not be able to read another tenant's accounts, envelopes, schedules
 | Choice in the specification | What to implement |
 | --- | --- |
 | Pooled single database | One database for all tenants. |
-| Shared schema | The tables in modules 5 and 6. No schema-per-tenant. |
+| Shared schema | Every tenant shares the `orbit` schema. No schema-per-tenant. |
 | Row-level security | PostgreSQL RLS on every state-bearing table. |
 | Tenant key | `tenant_id UUID NOT NULL REFERENCES tenants(id)`, indexed. |
 
 `tenant_type` is one of `individual`, `household`, `organization`. It labels the tenant. It does not select a different schema.
+
+The Neon database is shared with other applications, which keep their tables in `public` (and `biomeg`). Orbit's tables live only in `orbit`. The app sets `search_path` to `orbit, public` on its own connections. Do not set that path on the database role: unqualified names from the other applications must keep resolving in `public`.
 
 ## Step 1 — Create `tenants`
 

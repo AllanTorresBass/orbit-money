@@ -49,7 +49,7 @@ export async function loadHealth(options?: { migrationsDir?: string }): Promise<
       await client.query("SELECT 1");
       // A failed query would abort the transaction, so look for the table first.
       const present = await client.query<{ present: boolean }>(
-        "SELECT to_regclass('public.schema_migrations') IS NOT NULL AS present",
+        "SELECT to_regclass('orbit.schema_migrations') IS NOT NULL AS present",
       );
       let applied = 0;
       if (present.rows[0]?.present) {
