@@ -2,12 +2,14 @@
 
 import { signIn } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useTranslations } from "next-intl";
 import { Suspense, useState, useSyncExternalStore } from "react";
 import { isClientDevHeaderAuthEnabled } from "@/lib/auth/dev-header-auth";
 import { isMagicLinkUiEnabled } from "@/lib/auth/magic-link";
 import { setActorUserId, setTenantId } from "@/lib/dev/actor-store";
 import { HARBOR } from "@/lib/dev/harbor-ids";
 import { OrbitMark } from "@/components/brand/orbit-mark";
+import { LanguageToggle } from "@/components/shell/language-toggle";
 import { ThemeToggleButton } from "@/components/shell/theme-toggle";
 import { InlineBanner } from "@/components/shell/inline-banner";
 
@@ -23,6 +25,8 @@ function SignInForm() {
   );
   const router = useRouter();
   const searchParams = useSearchParams();
+  const t = useTranslations("auth");
+  const tCommon = useTranslations("common");
   const [email, setEmail] = useState(
     isClientDevHeaderAuthEnabled() ? "blair@harbor.test" : "",
   );
@@ -77,12 +81,12 @@ function SignInForm() {
         callbackUrl: searchParams.get("callbackUrl") ?? "/today",
       });
       if (result?.error) {
-        setNotice({ tone: "short", text: "We could not send that link. Wait a few minutes and try again." });
+        setNotice({ tone: "short", text: t("magicLinkError") });
         return;
       }
       setNotice({
         tone: "low",
-        text: "Check your email for a sign-in link. New here? The link opens Create after you confirm.",
+        text: t("magicLinkSent"),
       });
     } finally {
       setSaving(false);
@@ -92,29 +96,32 @@ function SignInForm() {
   return (
     <div className="mx-auto flex min-h-screen max-w-md flex-col justify-center px-5 py-16">
       <div className="orbit-reveal" style={{ "--i": 0 } as React.CSSProperties}>
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-3">
           <OrbitMark wordmark />
-          <ThemeToggleButton />
+          <div className="flex items-center gap-2">
+            <LanguageToggle mode="cookie" size="compact" />
+            <ThemeToggleButton />
+          </div>
         </div>
         <h1 className="mt-10 text-balance text-[34px] font-semibold leading-[1.1] tracking-tight text-[var(--orbit-ink)]">
-          Know what you can spend today.
+          {t("headline")}
         </h1>
         <p className="mt-3 text-[16px] leading-relaxed text-[var(--orbit-secondary)]">
-          One calm number, paced to your next payday.
+          {t("subhead")}
         </p>
       </div>
       <label
         className="orbit-reveal mt-10 block text-[14px] font-medium text-[var(--orbit-secondary)]"
         style={{ "--i": 1 } as React.CSSProperties}
       >
-        Email
+        {tCommon("email")}
         {mounted ? (
           <input
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             className="orbit-field mt-2"
-            placeholder="you@example.com"
+            placeholder={t("emailPlaceholder")}
             autoComplete="email"
             data-lpignore="true"
             data-1p-ignore
@@ -133,7 +140,7 @@ function SignInForm() {
           }}
           className="orbit-btn mt-6 w-full"
         >
-          Continue
+          {tCommon("continue")}
         </button>
       ) : null}
       {magicLinkEnabled ? (
@@ -145,13 +152,12 @@ function SignInForm() {
           }}
           className={`w-full ${credentialsEnabled ? "orbit-btn-quiet mt-3" : "orbit-btn mt-6"}`}
         >
-          Email me a link
+          {t("emailMagicLink")}
         </button>
       ) : null}
       {!credentialsEnabled && !magicLinkEnabled ? (
         <InlineBanner tone="short" className="mt-10">
-          Sign-in is not configured. Set Resend keys and NEXT_PUBLIC_MAGIC_LINK, or enable local
-          Harbor header auth.
+          {t("notConfigured")}
         </InlineBanner>
       ) : null}
       {notice ? (
@@ -160,24 +166,22 @@ function SignInForm() {
         </InlineBanner>
       ) : null}
       {credentialsEnabled ? (
-        <p className="mt-6 text-[13px] text-[var(--orbit-secondary)]">
-          Local Harbor: try alex@harbor.test, blair@harbor.test, or casey@harbor.test. New email
-          opens Create.
-        </p>
+        <p className="mt-6 text-[13px] text-[var(--orbit-secondary)]">{t("harborHint")}</p>
       ) : (
-        <p className="mt-6 text-[13px] text-[var(--orbit-secondary)]">
-          New here? Request a link — we will open Create after you confirm your email.
-        </p>
+        <p className="mt-6 text-[13px] text-[var(--orbit-secondary)]">{t("newUserHint")}</p>
       )}
     </div>
   );
 }
 
 export default function SignInPage() {
+  const tCommon = useTranslations("common");
   return (
     <Suspense
       fallback={
-        <div className="mx-auto max-w-md px-5 py-16 text-[var(--orbit-secondary)]">Loading…</div>
+        <div className="mx-auto max-w-md px-5 py-16 text-[var(--orbit-secondary)]">
+          {tCommon("loading")}
+        </div>
       }
     >
       <SignInForm />

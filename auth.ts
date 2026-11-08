@@ -11,10 +11,12 @@ import {
   magicLinkRateLimitKey,
 } from "@/lib/auth/rate-limit";
 import { isDevHeaderAuthEnabled } from "@/lib/auth/dev-header-auth";
+import { normalizeLocale } from "@/i18n/config";
 import { renderSignInEmail } from "@/lib/email/sign-in-email";
 import { sendResendEmail } from "@/lib/email/resend";
 import { getPool, withTransaction } from "@/lib/db/connection";
 import { logger } from "@/lib/logger";
+import { DEFAULT_LOCALE } from "@/types/i18n/locale.types";
 
 declare module "next-auth" {
   interface Session {
@@ -96,7 +98,15 @@ if (magicLinkConfigured) {
       normalizeIdentifier: (identifier: string) => identifier.trim().toLowerCase(),
       async sendVerificationRequest({ identifier, url, provider }) {
         const { host } = new URL(url);
-        const message = renderSignInEmail({ url });
+        const email = identifier.trim().toLowerCase();
+        const localeRow = await getPool().query<{ preferred_locale: string }>(
+          `SELECT preferred_locale FROM users WHERE email = $1`,
+          [email],
+        );
+        const locale = normalizeLocale(
+          localeRow.rows[0]?.preferred_locale ?? DEFAULT_LOCALE,
+        );
+        const message = await renderSignInEmail({ url, locale });
         const messageId = await sendResendEmail(
           {
             to: identifier,

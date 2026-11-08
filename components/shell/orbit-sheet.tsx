@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { useLayoutEffect, useId, useRef, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
@@ -29,6 +30,7 @@ export function OrbitSheet({ title, onClose, className, panelClassName, children
   const closeRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
+  const tCommon = useTranslations("common");
 
   useLayoutEffect(() => {
     onCloseRef.current = onClose;
@@ -88,10 +90,10 @@ export function OrbitSheet({ title, onClose, className, panelClassName, children
           ref={closeRef}
           type="button"
           onClick={() => onCloseRef.current()}
-          aria-label="Close"
+          aria-label={tCommon("close")}
           className="orbit-dismiss"
         >
-          Close
+          {tCommon("close")}
         </button>
         <h2
           id={titleId}

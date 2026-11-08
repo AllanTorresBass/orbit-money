@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { useSelectTenant } from "@/hooks/use-tenant-selection";
 import { cn } from "@/lib/utils";
 import type { TenantChoice } from "@/types/me/me.types";
@@ -25,14 +26,16 @@ export function TenantPicker({
 }: TenantPickerProps) {
   const select = useSelectTenant();
   const inline = variant === "inline";
+  const t = useTranslations("you");
+  const tCommon = useTranslations("common");
 
   return (
     <div id={id} className={cn(inline ? "mt-10" : "mx-auto max-w-md px-5 pt-10", className)}>
       {inline ? (
-        <h2 className="text-[15px] font-medium text-[var(--orbit-ink)]">Households</h2>
+        <h2 className="text-[15px] font-medium text-[var(--orbit-ink)]">{t("householdsTitle")}</h2>
       ) : (
         <h1 className="font-[family-name:var(--font-orbit-display)] text-[28px] font-semibold tracking-tight text-[var(--orbit-ink)]">
-          Which household?
+          {t("whichHousehold")}
         </h1>
       )}
       <ul className={cn("orbit-group", inline ? "mt-3" : "mt-6")}>
@@ -50,7 +53,7 @@ export function TenantPicker({
                 <span className="min-w-0 truncate">{tenant.tenantName}</span>
                 {current ? (
                   <span className="shrink-0 rounded-full bg-[var(--orbit-brand-soft)] px-2.5 py-0.5 text-[13px] font-medium text-[var(--orbit-brand)]">
-                    Current
+                    {tCommon("current")}
                   </span>
                 ) : null}
               </button>

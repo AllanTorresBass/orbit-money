@@ -1,4 +1,6 @@
 import { escapeHtml, sendResendEmail } from "@/lib/email/resend";
+import { tStatic } from "@/lib/i18n/load-messages";
+import { DEFAULT_LOCALE, type AppLocale } from "@/types/i18n/locale.types";
 
 const INVITE_PATH = "/invite";
 
@@ -18,15 +20,35 @@ export async function sendInviteEmail(input: {
   inviterName: string;
   tenantName: string;
   link: string;
+  locale?: AppLocale;
 }): Promise<void> {
-  const inviter = input.inviterName.trim() || "Someone";
-  const subject = `${inviter} invited you to ${input.tenantName} on Orbit`;
+  const locale = input.locale ?? DEFAULT_LOCALE;
+  const inviter = input.inviterName.trim() || (await tStatic(locale, "common.someone"));
   const absolute = input.link.startsWith("http");
+  const subject = await tStatic(locale, "emails.inviteSubject", {
+    inviter,
+    tenantName: input.tenantName,
+  });
+  const intro = await tStatic(locale, "emails.inviteIntro", {
+    inviter,
+    tenantName: input.tenantName,
+  });
   const text = absolute
-    ? `${inviter} invited you to ${input.tenantName} on Orbit.\nSign in with this email address and join:\n${input.link}\n`
-    : `${inviter} invited you to ${input.tenantName} on Orbit.\nSign in with this email address, then open ${input.link} to join.\n`;
+    ? await tStatic(locale, "emails.inviteTextAbsolute", {
+        inviter,
+        tenantName: input.tenantName,
+        link: input.link,
+      })
+    : await tStatic(locale, "emails.inviteTextRelative", {
+        inviter,
+        tenantName: input.tenantName,
+        link: input.link,
+      });
+  const joinLabel = await tStatic(locale, "emails.inviteJoin", { tenantName: input.tenantName });
+  const signInLine = await tStatic(locale, "emails.inviteSignIn");
+  const signInThenOpen = await tStatic(locale, "emails.inviteSignInThenOpen", { link: input.link });
   const html = absolute
-    ? `<p>${escapeHtml(inviter)} invited you to ${escapeHtml(input.tenantName)} on Orbit.</p><p><a href="${escapeHtml(input.link)}">Join ${escapeHtml(input.tenantName)}</a></p><p>Sign in with this email address.</p>`
-    : `<p>${escapeHtml(inviter)} invited you to ${escapeHtml(input.tenantName)} on Orbit.</p><p>Sign in with this email address, then open ${escapeHtml(input.link)} to join.</p>`;
+    ? `<p>${escapeHtml(intro)}</p><p><a href="${escapeHtml(input.link)}">${escapeHtml(joinLabel)}</a></p><p>${escapeHtml(signInLine)}</p>`
+    : `<p>${escapeHtml(intro)}</p><p>${escapeHtml(signInThenOpen)}</p>`;
   await sendResendEmail({ to: input.to, subject, text, html });
 }

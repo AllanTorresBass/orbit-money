@@ -7,8 +7,8 @@ const HOSTILE_URL =
   'https://orbit.example/callback?token=1&next="><script>alert(1)</script>';
 
 describe("renderSignInEmail", () => {
-  it("keeps the subject free of the link and escapes a hostile URL", () => {
-    const message = renderSignInEmail({ url: HOSTILE_URL });
+  it("keeps the subject free of the link and escapes a hostile URL", async () => {
+    const message = await renderSignInEmail({ url: HOSTILE_URL });
 
     expect(message.subject).toBe("Sign in to Orbit");
     expect(message.subject).not.toContain("token");

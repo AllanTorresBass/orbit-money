@@ -2,14 +2,15 @@
 
 import { Monitor, Moon, Sun, type LucideIcon } from "lucide-react";
 import { useTheme } from "next-themes";
+import { useTranslations } from "next-intl";
 import { useSyncExternalStore } from "react";
 import { cn } from "@/lib/utils";
 
-const OPTIONS: ReadonlyArray<{ value: string; label: string; icon: LucideIcon }> = [
-  { value: "light", label: "Light", icon: Sun },
-  { value: "dark", label: "Dark", icon: Moon },
-  { value: "system", label: "System", icon: Monitor },
-];
+const OPTION_KEYS = [
+  { value: "light", key: "light", icon: Sun },
+  { value: "dark", key: "dark", icon: Moon },
+  { value: "system", key: "system", icon: Monitor },
+] as const satisfies ReadonlyArray<{ value: string; key: string; icon: LucideIcon }>;
 
 const subscribe = () => () => {};
 
@@ -29,17 +30,18 @@ export interface ThemeToggleProps {
 export function ThemeToggle({ className }: ThemeToggleProps) {
   const { theme, setTheme } = useTheme();
   const mounted = useMounted();
+  const t = useTranslations("common.appearance");
 
   return (
     <div
       role="radiogroup"
-      aria-label="Appearance"
+      aria-label={t("aria")}
       className={cn(
         "inline-flex w-full rounded-full border border-[var(--orbit-line)] bg-[var(--orbit-surface)] p-1",
         className,
       )}
     >
-      {OPTIONS.map(({ value, label, icon: Icon }) => {
+      {OPTION_KEYS.map(({ value, key, icon: Icon }) => {
         const active = mounted && theme === value;
         return (
           <button
@@ -56,7 +58,7 @@ export function ThemeToggle({ className }: ThemeToggleProps) {
             )}
           >
             <Icon className="size-4" aria-hidden="true" />
-            {label}
+            {t(key)}
           </button>
         );
       })}
@@ -69,12 +71,13 @@ export function ThemeToggleButton({ className }: ThemeToggleProps) {
   const { resolvedTheme, setTheme } = useTheme();
   const mounted = useMounted();
   const isDark = mounted && resolvedTheme === "dark";
+  const t = useTranslations("common.appearance");
 
   return (
     <button
       type="button"
       onClick={() => setTheme(isDark ? "light" : "dark")}
-      aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
+      aria-label={isDark ? t("switchToLight") : t("switchToDark")}
       className={cn(
         "inline-flex size-10 items-center justify-center rounded-full border border-[var(--orbit-line)] bg-[var(--orbit-surface)] text-[var(--orbit-ink)] transition-colors hover:border-[var(--orbit-brand)]",
         className,

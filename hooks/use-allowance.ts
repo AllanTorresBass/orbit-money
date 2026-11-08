@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useGlobalErrorHandler } from "@/hooks/use-global-error-handler";
 import { api } from "@/lib/api/client";
@@ -29,6 +30,8 @@ export function useMe() {
 export function useCreatePurchase() {
   const queryClient = useQueryClient();
   const { handleCrudError, notifySuccess } = useGlobalErrorHandler();
+  const tSuccess = useTranslations("success");
+  const tAction = useTranslations("errors.action");
 
   /** The household and person this device is signed in as. Null until Me has loaded. */
   function currentScope(): OfflineQueueScope | null {
@@ -80,11 +83,11 @@ export function useCreatePurchase() {
         );
         return;
       }
-      notifySuccess("Purchase saved");
+      notifySuccess(tSuccess("purchaseSaved"));
       await invalidateMoneyQueries(queryClient);
     },
     onError: (error: unknown) => {
-      handleCrudError(error, { action: "save the purchase" });
+      handleCrudError(error, { action: tAction("savePurchase") });
     },
   });
 }

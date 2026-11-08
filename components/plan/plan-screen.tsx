@@ -1,5 +1,6 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
 import { useState } from "react";
 import { AddEnvelopeSheet } from "@/components/plan/add-envelope-sheet";
 import { EditEnvelopeSheet } from "@/components/plan/edit-envelope-sheet";
@@ -17,16 +18,22 @@ import { cn, formatMoney, formatShortDate } from "@/lib/utils";
 import { billSetAsideLabel } from "@/lib/utils/display-labels";
 import { fetchErrorMessage } from "@/lib/utils/handle-fetch-error";
 import type { EditableEnvelope, EditableTier, PlanEnvelopeDto } from "@/types/plan/plan.types";
+import type { AppLocale } from "@/types/i18n/locale.types";
 
 export interface PlanScreenProps {
   className?: string;
 }
 
-function setAside(bill: PlanEnvelopeDto) {
-  return billSetAsideLabel(bill.balanceCents, bill.targetCapCents, formatMoney);
-}
-
 export function PlanScreen({ className }: PlanScreenProps) {
+  const locale = useLocale() as AppLocale;
+  const t = useTranslations("plan");
+  const tCommon = useTranslations("common");
+  const tErrors = useTranslations("errors");
+  const fmt = (cents: number) => formatMoney(cents, { locale });
+
+  const setAside = (bill: PlanEnvelopeDto) =>
+    billSetAsideLabel(bill.balanceCents, bill.targetCapCents, fmt, t);
+
   const plan = usePlan();
   const me = useMe();
   const reorder = useReorderEnvelopes();
@@ -40,11 +47,18 @@ export function PlanScreen({ className }: PlanScreenProps) {
 
   const canConfigure = me.data?.role === "owner" || me.data?.role === "admin";
   const canSuggest = me.data?.role === "member";
-  // Only owners and admins can read suggestions. A member suggests and never applies.
   const proposals = useProposals(canConfigure);
   const pendingSuggestions = canConfigure ? (proposals.data?.proposals.length ?? 0) : 0;
   const canOpenRow = canConfigure || canSuggest;
   const showAdd = canConfigure || canSuggest;
+
+  const fetchCopy = {
+    chooseHousehold: tErrors("chooseHousehold"),
+    signIn: tErrors("signIn"),
+    cannotSee: tErrors("cannotSee"),
+    offline: tErrors("offline"),
+    couldNotLoad: tErrors("couldNotLoad"),
+  };
 
   function moveRow(
     tierCategory: EditableTier,
@@ -72,7 +86,9 @@ export function PlanScreen({ className }: PlanScreenProps) {
   if (plan.isError || !plan.data) {
     return (
       <div className={cn("px-6 pt-10", className)}>
-        <p className="text-[var(--orbit-short)]">{fetchErrorMessage(plan.error, "plan")}</p>
+        <p className="text-[var(--orbit-short)]">
+          {fetchErrorMessage(plan.error, tErrors("resource.plan"), fetchCopy)}
+        </p>
       </div>
     );
   }
@@ -82,16 +98,16 @@ export function PlanScreen({ className }: PlanScreenProps) {
   return (
     <div className={cn("mx-auto min-h-screen max-w-md px-5 pb-28 pt-8", className)}>
       <h1 className="font-[family-name:var(--font-orbit-display)] text-[32px] font-semibold leading-tight tracking-tight text-[var(--orbit-ink)]">
-        Plan
+        {t("title")}
       </h1>
       {payday ? (
         <div className="mt-4 flex items-center justify-between gap-4 rounded-2xl bg-[var(--orbit-brand-soft)] p-4">
           <div className="min-w-0">
             <p className="text-[13px] font-medium text-[var(--orbit-brand)]">
-              Payday on {formatShortDate(payday.date)}
+              {t("paydayOn", { date: formatShortDate(payday.date, locale) })}
             </p>
             <p className="mt-0.5 text-[22px] font-semibold tabular-nums tracking-tight text-[var(--orbit-ink)]">
-              {formatMoney(payday.amountCents)}
+              {fmt(payday.amountCents)}
             </p>
           </div>
           {canConfigure ? (
@@ -100,19 +116,19 @@ export function PlanScreen({ className }: PlanScreenProps) {
               className="orbit-link shrink-0 rounded-full bg-[var(--orbit-surface)] px-4 py-2 text-[14px]"
               onClick={() => setEditingPayday(true)}
             >
-              Edit payday
+              {t("editPayday")}
             </button>
           ) : null}
         </div>
       ) : (
-        <p className="mt-1 text-[15px] text-[var(--orbit-secondary)]">Where payday goes.</p>
+        <p className="mt-1 text-[15px] text-[var(--orbit-secondary)]">{t("paydayEmpty")}</p>
       )}
 
       {pendingSuggestions > 0 ? (
         <InlineBanner href="/you" className="mt-6">
           {pendingSuggestions === 1
-            ? "1 suggestion is waiting for you."
-            : `${pendingSuggestions} suggestions are waiting for you.`}
+            ? t("suggestionWaitingOne")
+            : t("suggestionWaitingMany", { count: pendingSuggestions })}
         </InlineBanner>
       ) : null}
 
@@ -121,12 +137,12 @@ export function PlanScreen({ className }: PlanScreenProps) {
           role="status"
           className="mt-6 border-l-2 border-[var(--orbit-low)] pl-3 text-[15px] text-[var(--orbit-ink)]"
         >
-          Some of what was left last payday could not move to your Goals yet.
+          {t("sweepIncomplete")}
         </p>
       ) : null}
 
       <section className="mt-10">
-        <h2 className="orbit-eyebrow">Bills</h2>
+        <h2 className="orbit-eyebrow">{t("bills")}</h2>
         <ul className="orbit-group mt-3">
           {bills.map((b, index) => (
             <li key={b.id} className="flex items-center gap-2 pr-3">
@@ -159,18 +175,18 @@ export function PlanScreen({ className }: PlanScreenProps) {
               {canConfigure && (b.scheduleId || b.balanceCents > 0) ? (
                 <button
                   type="button"
-                  aria-label={`Mark ${b.name} paid`}
+                  aria-label={t("markPaidTitle", { name: b.name })}
                   className="orbit-link shrink-0 px-1 text-[15px]"
                   onClick={() => setPayingBill(b)}
                 >
-                  Paid
+                  {t("markPaid")}
                 </button>
               ) : null}
               {canConfigure && bills.length > 1 ? (
                 <div className="flex shrink-0 gap-1">
                   <button
                     type="button"
-                    aria-label={`Move ${b.name} up`}
+                    aria-label={t("moveUp", { name: b.name })}
                     disabled={reordering || index === 0}
                     className="px-1 text-[15px] text-[var(--orbit-secondary)] disabled:opacity-30"
                     onClick={() => {
@@ -181,7 +197,7 @@ export function PlanScreen({ className }: PlanScreenProps) {
                   </button>
                   <button
                     type="button"
-                    aria-label={`Move ${b.name} down`}
+                    aria-label={t("moveDown", { name: b.name })}
                     disabled={reordering || index === bills.length - 1}
                     className="px-1 text-[15px] text-[var(--orbit-secondary)] disabled:opacity-30"
                     onClick={() => {
@@ -201,13 +217,13 @@ export function PlanScreen({ className }: PlanScreenProps) {
             className="orbit-link mt-4 text-[15px]"
             onClick={() => setAddKind("fixed")}
           >
-            {canSuggest ? "Suggest a bill" : "Add a bill"}
+            {canSuggest ? t("suggestBill") : t("addBill")}
           </button>
         ) : null}
       </section>
 
       <section className="mt-8">
-        <h2 className="orbit-eyebrow">Goals</h2>
+        <h2 className="orbit-eyebrow">{t("goals")}</h2>
         <ul className="orbit-group mt-3">
           {goals.map((g, index) => (
             <li key={g.id} className="flex items-center gap-2 pr-3">
@@ -229,15 +245,15 @@ export function PlanScreen({ className }: PlanScreenProps) {
               >
                 <span className="truncate">{g.name}</span>
                 <span className="ml-3 shrink-0 tabular-nums text-[var(--orbit-secondary)]">
-                  {formatMoney(g.balanceCents)}
-                  {g.targetCapCents !== null ? ` / ${formatMoney(g.targetCapCents)}` : ""}
+                  {fmt(g.balanceCents)}
+                  {g.targetCapCents !== null ? ` / ${fmt(g.targetCapCents)}` : ""}
                 </span>
               </button>
               {canConfigure && goals.length > 1 ? (
                 <div className="flex shrink-0 gap-1">
                   <button
                     type="button"
-                    aria-label={`Move ${g.name} up`}
+                    aria-label={t("moveUp", { name: g.name })}
                     disabled={reordering || index === 0}
                     className="px-1 text-[15px] text-[var(--orbit-secondary)] disabled:opacity-30"
                     onClick={() => {
@@ -248,7 +264,7 @@ export function PlanScreen({ className }: PlanScreenProps) {
                   </button>
                   <button
                     type="button"
-                    aria-label={`Move ${g.name} down`}
+                    aria-label={t("moveDown", { name: g.name })}
                     disabled={reordering || index === goals.length - 1}
                     className="px-1 text-[15px] text-[var(--orbit-secondary)] disabled:opacity-30"
                     onClick={() => {
@@ -268,28 +284,30 @@ export function PlanScreen({ className }: PlanScreenProps) {
             className="orbit-link mt-4 text-[15px]"
             onClick={() => setAddKind("sinking")}
           >
-            {canSuggest ? "Suggest a goal" : "Add a goal"}
+            {canSuggest ? t("suggestGoal") : t("addGoal")}
           </button>
         ) : null}
       </section>
 
       {spending ? (
         <section className="mt-8">
-          <h2 className="orbit-eyebrow">Spending</h2>
+          <h2 className="orbit-eyebrow">{t("spending")}</h2>
           <button
             type="button"
             onClick={() => setExplainOpen(true)}
-            aria-label="How Spending works"
+            aria-label={t("howSpendingWorks")}
             className="orbit-group mt-3 flex w-full items-center justify-between px-4 py-4 text-left text-[17px] transition-colors hover:border-[var(--orbit-brand)]"
           >
             <span>{spending.name}</span>
-            <span className="font-semibold tabular-nums">{formatMoney(spending.balanceCents)}</span>
+            <span className="font-semibold tabular-nums">{fmt(spending.balanceCents)}</span>
           </button>
-          <h3 className="mt-6 text-[13px] font-medium text-[var(--orbit-secondary)]">This payday</h3>
+          <h3 className="mt-6 text-[13px] font-medium text-[var(--orbit-secondary)]">
+            {t("thisPayday")}
+          </h3>
           <ul className="orbit-group mt-2">
             {recentPurchases.length === 0 ? (
               <li className="px-4 py-4 text-[15px] text-[var(--orbit-secondary)]">
-                No purchases yet.
+                {t("noPurchases")}
               </li>
             ) : (
               recentPurchases.map((p) => (
@@ -297,18 +315,21 @@ export function PlanScreen({ className }: PlanScreenProps) {
                   key={p.id}
                   className="flex items-baseline justify-between gap-3 px-4 py-3 text-[15px]"
                 >
-                  <span className="min-w-0 truncate">{p.memo ?? "Purchase"}</span>
+                  <span className="min-w-0 truncate">{p.memo ?? tCommon("purchase")}</span>
                   <span className="flex shrink-0 items-baseline gap-3">
-                    <span className="tabular-nums">{formatMoney(p.amountCents)}</span>
+                    <span className="tabular-nums">{fmt(p.amountCents)}</span>
                     {canConfigure ? (
                       <button
                         type="button"
-                        aria-label={`Undo ${p.memo ?? "purchase"} ${formatMoney(p.amountCents)}`}
+                        aria-label={t("undoPurchase", {
+                          name: p.memo ?? tCommon("purchase"),
+                          amount: fmt(p.amountCents),
+                        })}
                         disabled={undo.isPending}
                         className="text-[15px] text-[var(--orbit-secondary)] disabled:opacity-60"
                         onClick={() => undo.mutate(p.id)}
                       >
-                        Undo
+                        {tCommon("undo")}
                       </button>
                     ) : null}
                   </span>

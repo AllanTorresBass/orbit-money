@@ -215,6 +215,14 @@ A bill payment's schedule is not rewound: the due date stays where the payment m
 
 **Rejected.** Letting the goal be removed with its cents still inside. Moving the money into another goal the person did not choose. Making remove do the move implicitly.
 
+## D17 — UI language is per person; URLs stay locale-agnostic
+
+**Practice.** Each user stores `preferred_locale` as `en` or `es`. Switching households does not change the language. The UI keeps the same paths (`/today`, `/plan`, …) with no `/en` or `/es` prefix. A `NEXT_LOCALE` cookie carries the choice for SSR and for signed-out screens; after sign-in the database value wins and refreshes the cookie. Money and short dates format with `Intl` for that locale. Household calendar rules still follow `tenants.timezone` (D10).
+
+**Why.** Language is a personal preference, like appearance. Locale prefixes would force a route rewrite for an app with no public marketing site. Cookie + account preference keeps first paint and multi-device sync without changing bookmarks.
+
+**Rejected.** One language for the whole household. Locale-prefixed routes. Inferring UI language from timezone or `holiday_region`.
+
 ## Deferred product choices
 
 These are decided later, on purpose. Do not build them inside an unrelated change.

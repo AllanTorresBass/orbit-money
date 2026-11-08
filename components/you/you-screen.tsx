@@ -2,7 +2,9 @@
 
 import Link from "next/link";
 import { signOut } from "next-auth/react";
+import { useTranslations } from "next-intl";
 import { ActorSwitcher } from "@/components/shell/actor-switcher";
+import { LanguageToggle } from "@/components/shell/language-toggle";
 import { TenantPicker } from "@/components/shell/tenant-picker";
 import { ThemeToggle } from "@/components/shell/theme-toggle";
 import { ActivitySection } from "@/components/you/activity-section";
@@ -14,7 +16,7 @@ import { useMe } from "@/hooks/use-allowance";
 import { isApiError } from "@/lib/api/api-error";
 import { isClientDevHeaderAuthEnabled } from "@/lib/auth/dev-header-auth";
 import { cn } from "@/lib/utils";
-import { ROLE_DESCRIPTIONS, roleLabel } from "@/lib/utils/display-labels";
+import { roleDescription, roleLabel } from "@/lib/utils/display-labels";
 import { fetchErrorMessage } from "@/lib/utils/handle-fetch-error";
 
 export interface YouScreenProps {
@@ -23,6 +25,10 @@ export interface YouScreenProps {
 
 export function YouScreen({ className }: YouScreenProps) {
   const me = useMe();
+  const t = useTranslations("you");
+  const tCommon = useTranslations("common");
+  const tRoles = useTranslations("roles");
+  const tErrors = useTranslations("errors");
 
   if (isApiError(me.error) && me.error.code === "tenant_selection_required") {
     return <TenantPicker tenants={me.error.tenants} className={className} />;
@@ -33,33 +39,41 @@ export function YouScreen({ className }: YouScreenProps) {
   return (
     <div className={cn("mx-auto min-h-screen max-w-md px-5 pb-28 pt-8", className)}>
       <h1 className="font-[family-name:var(--font-orbit-display)] text-[32px] font-semibold leading-tight tracking-tight text-[var(--orbit-ink)]">
-        You
+        {t("title")}
       </h1>
 
       {me.data ? (
         <dl className="orbit-group mt-6 text-[17px] text-[var(--orbit-ink)]">
           <div className="px-4 py-3.5">
-            <dt className="text-[13px] text-[var(--orbit-secondary)]">Name</dt>
+            <dt className="text-[13px] text-[var(--orbit-secondary)]">{tCommon("name")}</dt>
             <dd className="mt-0.5">{me.data.name}</dd>
           </div>
           <div className="px-4 py-3.5">
-            <dt className="text-[13px] text-[var(--orbit-secondary)]">Role</dt>
+            <dt className="text-[13px] text-[var(--orbit-secondary)]">{t("role")}</dt>
             <dd className="mt-0.5">
-              {roleLabel(me.data.role)}
+              {roleLabel(me.data.role, tRoles)}
               <span className="mt-0.5 block text-[15px] text-[var(--orbit-secondary)]">
-                {ROLE_DESCRIPTIONS[me.data.role]}
+                {roleDescription(me.data.role, tRoles)}
               </span>
             </dd>
           </div>
           <div className="px-4 py-3.5">
-            <dt className="text-[13px] text-[var(--orbit-secondary)]">Household</dt>
+            <dt className="text-[13px] text-[var(--orbit-secondary)]">{t("household")}</dt>
             <dd className="mt-0.5">{me.data.tenantName}</dd>
           </div>
         </dl>
       ) : me.isError ? (
-        <p className="mt-8 text-[var(--orbit-short)]">{fetchErrorMessage(me.error, "your details")}</p>
+        <p className="mt-8 text-[var(--orbit-short)]">
+          {fetchErrorMessage(me.error, tErrors("resource.yourDetails"), {
+            chooseHousehold: tErrors("chooseHousehold"),
+            signIn: tErrors("signIn"),
+            cannotSee: tErrors("cannotSee"),
+            offline: tErrors("offline"),
+            couldNotLoad: tErrors("couldNotLoad"),
+          })}
+        </p>
       ) : (
-        <p className="mt-8 text-[var(--orbit-secondary)]">Loading…</p>
+        <p className="mt-8 text-[var(--orbit-secondary)]">{tCommon("loading")}</p>
       )}
 
       {me.data && me.data.tenants.length > 1 ? (
@@ -84,36 +98,40 @@ export function YouScreen({ className }: YouScreenProps) {
       {me.data?.role === "owner" ? (
         <section className="mt-10" aria-labelledby="you-billing">
           <h2 id="you-billing" className="text-[15px] font-medium text-[var(--orbit-ink)]">
-            Billing
+            {t("billingTitle")}
           </h2>
-          <p className="mt-2 text-[15px] text-[var(--orbit-secondary)]">
-            Only the owner sees this. Orbit does not charge anything yet.
-          </p>
+          <p className="mt-2 text-[15px] text-[var(--orbit-secondary)]">{t("billingBody")}</p>
         </section>
       ) : null}
 
       <section className="mt-10" aria-labelledby="you-appearance">
         <h2 id="you-appearance" className="text-[15px] font-medium text-[var(--orbit-ink)]">
-          Appearance
+          {t("appearanceTitle")}
         </h2>
-        <p className="mt-2 text-[15px] text-[var(--orbit-secondary)]">
-          Light, dark, or the same as this phone.
-        </p>
+        <p className="mt-2 text-[15px] text-[var(--orbit-secondary)]">{t("appearanceBody")}</p>
         <ThemeToggle className="mt-3" />
+      </section>
+
+      <section className="mt-10" aria-labelledby="you-language">
+        <h2 id="you-language" className="text-[15px] font-medium text-[var(--orbit-ink)]">
+          {tCommon("language.title")}
+        </h2>
+        <p className="mt-2 text-[15px] text-[var(--orbit-secondary)]">{tCommon("language.body")}</p>
+        <LanguageToggle className="mt-3" mode="account" />
       </section>
 
       <section className="mt-12 border-t border-[var(--orbit-line)] pt-6">
         {isClientDevHeaderAuthEnabled() ? (
           <>
-            <p className="text-[13px] text-[var(--orbit-secondary)]">Try as</p>
+            <p className="text-[13px] text-[var(--orbit-secondary)]">{t("tryAs")}</p>
             <ActorSwitcher className="mt-2" />
           </>
         ) : null}
         <Link href="/signin" className="orbit-link mt-6 block text-[15px]">
-          Sign in with email
+          {t("signInEmail")}
         </Link>
         <Link href="/create" className="orbit-link mt-3 block text-[15px]">
-          Create another space
+          {t("createSpace")}
         </Link>
         <button
           type="button"
@@ -122,7 +140,7 @@ export function YouScreen({ className }: YouScreenProps) {
             void signOut({ callbackUrl: "/signin" });
           }}
         >
-          Sign out
+          {t("signOut")}
         </button>
       </section>
     </div>

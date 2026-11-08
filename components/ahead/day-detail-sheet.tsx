@@ -1,9 +1,11 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
 import { OrbitSheet } from "@/components/shell/orbit-sheet";
 import { useForecastDay } from "@/hooks/use-allowance";
 import { cn, formatMoney, formatShortDate } from "@/lib/utils";
 import { dayNarrative } from "@/lib/utils/day-narrative";
+import type { AppLocale } from "@/types/i18n/locale.types";
 
 export interface DayDetailSheetProps {
   /** `YYYY-MM-DD` of the tapped row. Null keeps the sheet closed. */
@@ -27,14 +29,17 @@ function DetailRow({ label, value }: DetailRowProps) {
 }
 
 export function DayDetailSheet({ date, onClose, className }: DayDetailSheetProps) {
+  const locale = useLocale() as AppLocale;
+  const t = useTranslations("ahead");
   const day = useForecastDay(date);
+  const fmt = (cents: number) => formatMoney(cents, { locale });
 
   if (date === null) return null;
 
   const detail = day.data;
 
   return (
-    <OrbitSheet title={formatShortDate(date)} onClose={onClose} className={className}>
+    <OrbitSheet title={formatShortDate(date, locale)} onClose={onClose} className={className}>
         {day.isLoading ? (
           <div className="mt-6 animate-pulse space-y-3" aria-busy="true">
             <div className="h-6 w-full rounded bg-[var(--orbit-line)]" />
@@ -42,7 +47,7 @@ export function DayDetailSheet({ date, onClose, className }: DayDetailSheetProps
             <div className="h-6 w-full rounded bg-[var(--orbit-line)]" />
           </div>
         ) : day.isError || !detail ? (
-          <p className="mt-6 text-[15px] text-[var(--orbit-short)]">Could not load this day.</p>
+          <p className="mt-6 text-[15px] text-[var(--orbit-short)]">{t("dayLoadError")}</p>
         ) : (
           <>
             <p
@@ -52,19 +57,19 @@ export function DayDetailSheet({ date, onClose, className }: DayDetailSheetProps
                 detail.status === "warning" && "text-[var(--orbit-low)]",
               )}
             >
-              {dayNarrative(detail)}
+              {dayNarrative(detail, fmt, t)}
             </p>
             <div className="mt-4">
-              <DetailRow label="Money in the bank" value={formatMoney(detail.balanceCents)} />
-              <DetailRow label="Keep at least" value={formatMoney(detail.keepAtLeastCents)} />
+              <DetailRow label={t("moneyInBank")} value={fmt(detail.balanceCents)} />
+              <DetailRow label={t("keepAtLeast")} value={fmt(detail.keepAtLeastCents)} />
               {detail.inflowCents > 0 ? (
-                <DetailRow label="Payday" value={`+${formatMoney(detail.inflowCents)}`} />
+                <DetailRow label={t("payday")} value={`+${fmt(detail.inflowCents)}`} />
               ) : null}
               {detail.scheduledOutflowCents > 0 ? (
-                <DetailRow label="Bills" value={`-${formatMoney(detail.scheduledOutflowCents)}`} />
+                <DetailRow label={t("bills")} value={`-${fmt(detail.scheduledOutflowCents)}`} />
               ) : null}
               {detail.assumedBurnCents > 0 ? (
-                <DetailRow label="Spending" value={`-${formatMoney(detail.assumedBurnCents)}`} />
+                <DetailRow label={t("spending")} value={`-${fmt(detail.assumedBurnCents)}`} />
               ) : null}
             </div>
           </>

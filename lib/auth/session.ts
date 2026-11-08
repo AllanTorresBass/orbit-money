@@ -1,10 +1,12 @@
 import { cookies, headers } from "next/headers";
 import { auth } from "@/auth";
+import { normalizeLocale } from "@/i18n/config";
 import { isDevHeaderAuthEnabled } from "@/lib/auth/dev-header-auth";
 import { withTransaction } from "@/lib/db/connection";
 import type { MembershipRole } from "@/lib/auth/permissions";
 import { pickTenantForSession, type RequestIdentity } from "@/lib/auth/tenant-pick";
 import { TenantSelectionRequiredError } from "@/lib/auth/tenant-selection";
+import type { AppLocale } from "@/types/i18n/locale.types";
 import type { TenantChoice } from "@/types/me/me.types";
 import type { TenantType } from "@/types/tenant/tenant.types";
 
@@ -29,6 +31,8 @@ export interface AppSession {
   tenantType: TenantType;
   /** IANA zone that owns the household's calendar (D10). */
   timezone: string;
+  /** Per-person UI language. */
+  preferredLocale: AppLocale;
 }
 
 async function loadMembership(userId: string, tenantId: string): Promise<AppSession | null> {
@@ -41,10 +45,11 @@ async function loadMembership(userId: string, tenantId: string): Promise<AppSess
       tenant_name: string;
       tenant_type: TenantType;
       timezone: string;
+      preferred_locale: string;
       status: string;
     }>(
-      `SELECT m.role, m.status, u.email, u.name, t.name AS tenant_name, t.tenant_type,
-              t.timezone
+      `SELECT m.role, m.status, u.email, u.name, u.preferred_locale, t.name AS tenant_name,
+              t.tenant_type, t.timezone
        FROM tenant_memberships m
        JOIN users u ON u.id = m.user_id
        JOIN tenants t ON t.id = m.tenant_id
@@ -66,6 +71,7 @@ async function loadMembership(userId: string, tenantId: string): Promise<AppSess
       tenantName: row.tenant_name,
       tenantType: row.tenant_type,
       timezone: row.timezone,
+      preferredLocale: normalizeLocale(row.preferred_locale),
     };
   });
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useLocale, useTranslations } from "next-intl";
 import { useState } from "react";
 import { ChevronRight, Plus } from "lucide-react";
 import { OrbitMark } from "@/components/brand/orbit-mark";
@@ -23,31 +24,21 @@ import { isApiError } from "@/lib/api/api-error";
 import { discardPoisonPurchases } from "@/lib/offline/purchase-queue";
 import { reportClientLog } from "@/lib/observability/report-client-log";
 import { cn, formatMoney, formatShortDate } from "@/lib/utils";
-import { isAllowanceFromEarlierDay, STALE_NUMBERS_SENTENCE } from "@/lib/utils/allowance-staleness";
+import { isAllowanceFromEarlierDay } from "@/lib/utils/allowance-staleness";
 import { tenantTypeLabel } from "@/lib/utils/display-labels";
 import { fetchErrorMessage } from "@/lib/utils/handle-fetch-error";
+import type { AppLocale } from "@/types/i18n/locale.types";
 
 export interface TodayScreenProps {
   className?: string;
 }
 
-function queuedPurchaseSentence(count: number): string {
-  return count === 1
-    ? "1 purchase is saved on this phone. It sends when you're back online."
-    : `${count} purchases are saved on this phone. They send when you're back online.`;
-}
-
-function poisonPurchaseSentence(count: number): string {
-  return count === 1
-    ? "1 saved purchase could not be sent. Add it again if it still matters."
-    : `${count} saved purchases could not be sent. Add them again if they still matter.`;
-}
-
 /** Shown while offline with something saved on this phone. */
-function offlinePurchaseSentence(count: number): string {
-  return count === 1
-    ? "You're offline. This purchase will save when you reconnect."
-    : "You're offline. These purchases will save when you reconnect.";
+function offlinePurchaseSentence(
+  count: number,
+  t: (key: "offlinePurchaseOne" | "offlinePurchaseMany") => string,
+): string {
+  return count === 1 ? t("offlinePurchaseOne") : t("offlinePurchaseMany");
 }
 
 function TodayHeader({
@@ -94,6 +85,13 @@ function heroSizeClass(text: string): string {
 }
 
 export function TodayScreen({ className }: TodayScreenProps) {
+  const locale = useLocale() as AppLocale;
+  const t = useTranslations("today");
+  const tCommon = useTranslations("common");
+  const tErrors = useTranslations("errors");
+  const fmt = (cents: number, alwaysCents?: boolean) =>
+    formatMoney(cents, { locale, ...(alwaysCents ? { alwaysCents: true } : {}) });
+
   const me = useMe();
   const allowance = useAllowance();
   const online = useOnlineStatus();
@@ -103,6 +101,14 @@ export function TodayScreen({ className }: TodayScreenProps) {
   const poisonPurchases = usePoisonPurchaseCount(queueScope);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [paydaySheetOpen, setPaydaySheetOpen] = useState(false);
+
+  const fetchCopy = {
+    chooseHousehold: tErrors("chooseHousehold"),
+    signIn: tErrors("signIn"),
+    cannotSee: tErrors("cannotSee"),
+    offline: tErrors("offline"),
+    couldNotLoad: tErrors("couldNotLoad"),
+  };
 
   if (me.isLoading || allowance.isLoading) {
     return <TodaySkeleton className={className} />;
@@ -115,20 +121,20 @@ export function TodayScreen({ className }: TodayScreenProps) {
     return <TenantPicker tenants={selectionError.tenants} className={className} />;
   }
 
-  const typeLabel = me.data ? tenantTypeLabel(me.data.tenantType) : null;
-  // With more than one household, the name opens the switcher on You instead of the top.
+  const typeLabel = me.data ? tenantTypeLabel(me.data.tenantType, t) : null;
   const youHref = me.data && me.data.tenants.length > 1 ? "/you#households" : "/you";
 
-  // Created, but the first number has not been worked out yet.
   if (me.data && isApiError(allowance.error) && allowance.error.status === 404) {
     return (
       <div className={cn("mx-auto min-h-screen max-w-md px-5 pb-32 pt-6", className)}>
         <TodayHeader href={youHref} name={me.data.tenantName} typeLabel={typeLabel} />
-        <InlineBanner className="mt-6">
-          This is your first day. Orbit is still working out your number. Check back in a moment.
-        </InlineBanner>
+        <InlineBanner className="mt-6">{t("firstDayWorking")}</InlineBanner>
         {queuedPurchases > 0 ? (
-          <InlineBanner className="mt-4">{queuedPurchaseSentence(queuedPurchases)}</InlineBanner>
+          <InlineBanner className="mt-4">
+            {queuedPurchases === 1
+              ? t("queuedOne")
+              : t("queuedMany", { count: queuedPurchases })}
+          </InlineBanner>
         ) : null}
       </div>
     );
@@ -137,9 +143,9 @@ export function TodayScreen({ className }: TodayScreenProps) {
   if (me.isError || allowance.isError || !allowance.data) {
     return (
       <div className={cn("px-6 pt-10", className)}>
-        {!online ? <InlineBanner>You&apos;re offline.</InlineBanner> : null}
+        {!online ? <InlineBanner>{tErrors("offline")}</InlineBanner> : null}
         <p className="mt-4 text-[var(--orbit-short)]">
-          {fetchErrorMessage(allowance.error ?? me.error, "today")}
+          {fetchErrorMessage(allowance.error ?? me.error, tErrors("resource.today"), fetchCopy)}
         </p>
       </div>
     );
@@ -148,7 +154,7 @@ export function TodayScreen({ className }: TodayScreenProps) {
   const data = allowance.data;
   const pastPace = data.sTodayCents < 0;
   const heroColor = pastPace ? "text-[var(--orbit-short)]" : "text-[var(--orbit-ink)]";
-  const heroText = formatMoney(Math.abs(data.sTodayCents), { alwaysCents: true });
+  const heroText = fmt(Math.abs(data.sTodayCents), true);
   const ringProgress = pastPace
     ? 1
     : data.sDailyCents > 0
@@ -157,22 +163,23 @@ export function TodayScreen({ className }: TodayScreenProps) {
         ? 1
         : 0;
 
-  // Owners and admins settle paydays. Due today or overdue means the deposit is still to record.
   const canConfigure = me.data?.role === "owner" || me.data?.role === "admin";
   const payday = plan.data?.payday ?? null;
   const paydayDue = canConfigure && payday !== null && payday.date <= data.asOfDate;
-  // First evening: no bills yet. The banner is only for people who can add one.
   const showFirstEvening = canConfigure && plan.data !== undefined && plan.data.bills.length === 0;
 
   const earlierDay = isAllowanceFromEarlierDay(data.asOfDate, me.data?.timezone);
   const spendingBelowZero = data.spendingBalanceCents < 0;
   const firstRun = !data.hasPurchaseHistory;
   const bannerDate = data.breachDate ?? data.warningDate;
-  const keepAtLeast = formatMoney(data.keepAtLeastCents);
+  const keepAtLeast = fmt(data.keepAtLeastCents);
   const bannerLabel = data.breachDate
-    ? `${formatShortDate(data.breachDate)} drops below the ${keepAtLeast} you want to keep.`
+    ? t("breach", {
+        date: formatShortDate(data.breachDate, locale),
+        amount: keepAtLeast,
+      })
     : data.warningDate
-      ? `${formatShortDate(data.warningDate)} is getting low.`
+      ? t("warning", { date: formatShortDate(data.warningDate, locale) })
       : null;
 
   return (
@@ -182,18 +189,22 @@ export function TodayScreen({ className }: TodayScreenProps) {
       <div className="mt-6 space-y-3">
         {!online ? (
           <InlineBanner>
-            {queuedPurchases > 0
-              ? offlinePurchaseSentence(queuedPurchases)
-              : "You're offline. Today's number is from earlier."}
+            {queuedPurchases > 0 ? offlinePurchaseSentence(queuedPurchases, t) : t("offlineStale")}
           </InlineBanner>
         ) : queuedPurchases > 0 ? (
-          <InlineBanner>{queuedPurchaseSentence(queuedPurchases)}</InlineBanner>
+          <InlineBanner>
+            {queuedPurchases === 1
+              ? t("queuedOne")
+              : t("queuedMany", { count: queuedPurchases })}
+          </InlineBanner>
         ) : null}
 
         {poisonPurchases > 0 && queueScope ? (
           <div className="flex items-start justify-between gap-3">
             <InlineBanner tone="short" className="flex-1">
-              {poisonPurchaseSentence(poisonPurchases)}
+              {poisonPurchases === 1
+                ? t("poisonOne")
+                : t("poisonMany", { count: poisonPurchases })}
             </InlineBanner>
             <button
               type="button"
@@ -206,21 +217,17 @@ export function TodayScreen({ className }: TodayScreenProps) {
               }}
               className="shrink-0 text-[15px] text-[var(--orbit-secondary)]"
             >
-              Dismiss
+              {tCommon("dismiss")}
             </button>
           </div>
         ) : null}
 
-        {earlierDay ? <InlineBanner>{STALE_NUMBERS_SENTENCE}</InlineBanner> : null}
+        {earlierDay ? <InlineBanner>{t("staleNumbers")}</InlineBanner> : null}
 
-        {online && data.forecastStale ? (
-          <InlineBanner>Ahead could not refresh. You are seeing the last one.</InlineBanner>
-        ) : null}
+        {online && data.forecastStale ? <InlineBanner>{t("forecastStale")}</InlineBanner> : null}
 
         {spendingBelowZero ? (
-          <InlineBanner tone="short">
-            Spending is below zero. Tomorrow&apos;s pace is $0 until payday covers it.
-          </InlineBanner>
+          <InlineBanner tone="short">{t("spendingBelowZero")}</InlineBanner>
         ) : null}
 
         {bannerLabel && bannerDate ? (
@@ -231,21 +238,19 @@ export function TodayScreen({ className }: TodayScreenProps) {
 
         {firstRun ? (
           <InlineBanner>
-            {me.data?.canSpend
-              ? "This is your first day. Add a purchase and watch the number change."
-              : "This is your first day. The number changes when a purchase is added."}
+            {me.data?.canSpend ? t("firstRunCanSpend") : t("firstRunViewOnly")}
           </InlineBanner>
         ) : null}
       </div>
 
       <section
-        aria-label="Today's number"
+        aria-label={t("heroAria")}
         className="orbit-reveal mt-8"
         style={{ "--i": 1 } as React.CSSProperties}
       >
         <OrbitRing progress={ringProgress} tone={pastPace ? "short" : "brand"}>
           <p className="text-[14px] text-[var(--orbit-secondary)]">
-            {pastPace ? "Past today's pace" : "You can spend"}
+            {pastPace ? t("pastPace") : t("canSpend")}
           </p>
           <p
             className={cn(
@@ -259,16 +264,16 @@ export function TodayScreen({ className }: TodayScreenProps) {
           {!pastPace && !data.breachDate ? (
             <p className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-[color-mix(in_srgb,var(--orbit-fine)_14%,transparent)] px-3 py-1 text-[13px] font-medium text-[var(--orbit-fine)]">
               <span className="size-1.5 rounded-full bg-[var(--orbit-fine)]" aria-hidden="true" />
-              On pace
+              {tCommon("onPace")}
             </p>
           ) : null}
         </OrbitRing>
         <p className="mx-auto mt-6 max-w-[18rem] text-balance text-center text-[15px] leading-relaxed text-[var(--orbit-secondary)]">
           {pastPace
-            ? `Tomorrow's pace will be ${formatMoney(data.tomorrowBurnCents, { alwaysCents: true })}.`
+            ? t("tomorrowPace", { amount: fmt(data.tomorrowBurnCents, true) })
             : data.nextPayday
-              ? `Until payday on ${formatShortDate(data.nextPayday)}.`
-              : "Add a payday to see a daily amount."}
+              ? t("untilPayday", { date: formatShortDate(data.nextPayday, locale) })
+              : t("addPayday")}
         </p>
       </section>
 
@@ -276,7 +281,7 @@ export function TodayScreen({ className }: TodayScreenProps) {
         {me.data?.canSpend ? (
           <button type="button" onClick={() => setSheetOpen(true)} className="orbit-btn w-full">
             <Plus className="size-5" strokeWidth={2.25} aria-hidden="true" />
-            Add a purchase
+            {t("addPurchase")}
           </button>
         ) : null}
 
@@ -286,7 +291,7 @@ export function TodayScreen({ className }: TodayScreenProps) {
             onClick={() => setPaydaySheetOpen(true)}
             className="orbit-btn-quiet w-full"
           >
-            Record payday
+            {t("recordPayday")}
           </button>
         ) : null}
       </div>

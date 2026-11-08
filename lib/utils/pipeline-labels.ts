@@ -1,5 +1,7 @@
 import type { PipelineRunListItem } from "@/types/pipeline/pipeline.types";
 
+type Translate = (key: string, values?: Record<string, string | number>) => string;
+
 export interface RunStatusLabel {
   label: string;
   /** `short` needs attention. `low` is informational. */
@@ -7,41 +9,41 @@ export interface RunStatusLabel {
 }
 
 /** Plain-word status for a run. No engine vocabulary on screen. */
-export function runStatusLabel(run: PipelineRunListItem): RunStatusLabel {
-  if (run.status === "error") return { label: "Failed", tone: "short" };
-  if (run.status === "running") return { label: "Running", tone: "low" };
-  if (run.status === "stale" || run.forecastStale) return { label: "Out of date", tone: "short" };
-  if (run.sweepIncomplete) return { label: "Leftover could not move", tone: "low" };
-  return { label: "Done", tone: "ok" };
+export function runStatusLabel(run: PipelineRunListItem, t: Translate): RunStatusLabel {
+  if (run.status === "error") return { label: t("failed"), tone: "short" };
+  if (run.status === "running") return { label: t("running"), tone: "low" };
+  if (run.status === "stale" || run.forecastStale) return { label: t("outOfDate"), tone: "short" };
+  if (run.sweepIncomplete) return { label: t("leftoverStuck"), tone: "low" };
+  return { label: t("done"), tone: "ok" };
 }
 
-const REASON_SENTENCES: Record<string, string> = {
-  no_future_inflow: "No payday is ahead, so there is no daily amount.",
-  holiday_calendar_missing: "The holiday calendar is missing. The last numbers are kept.",
-  breach_mitigated: "Daily spending was lowered to stay above what you keep.",
-  breach_alert: "Your balance is set to drop below what you keep.",
-  sweep_skipped_no_sink: "Leftover money had no goal to move to.",
-  abandoned: "This check stopped before it finished.",
-  missing_discretionary: "Spending is missing from this household.",
-  tenant_not_found: "This household could not be found.",
-  debit_without_envelope: "A payment was not tied to a bill.",
-  pipeline_exception: "Something went wrong. Orbit will try again overnight.",
+const REASON_KEYS: Record<string, string> = {
+  no_future_inflow: "reasons.no_future_inflow",
+  holiday_calendar_missing: "reasons.holiday_calendar_missing",
+  breach_mitigated: "reasons.breach_mitigated",
+  breach_alert: "reasons.breach_alert",
+  sweep_skipped_no_sink: "reasons.sweep_skipped_no_sink",
+  abandoned: "reasons.abandoned",
+  missing_discretionary: "reasons.missing_discretionary",
+  tenant_not_found: "reasons.tenant_not_found",
+  debit_without_envelope: "reasons.debit_without_envelope",
+  pipeline_exception: "reasons.pipeline_exception",
 };
 
 /**
  * One plain sentence for why a run ended the way it did, or null when nothing is worth saying.
  * Reads the reason code, then the error code. Unknown codes get a generic line, never the code.
  */
-export function runReasonLabel(run: PipelineRunListItem): string | null {
+export function runReasonLabel(run: PipelineRunListItem, t: Translate): string | null {
   const code = run.reasonCode ?? run.errorCode;
   if (code === null || code === "ok") {
-    return run.status === "error" ? REASON_SENTENCES.pipeline_exception : null;
+    return run.status === "error" ? t("reasons.pipeline_exception") : null;
   }
-  const known = REASON_SENTENCES[code];
-  if (known) return known;
-  if (code.startsWith("pg_")) return "A database error stopped this check.";
+  const known = REASON_KEYS[code];
+  if (known) return t(known);
+  if (code.startsWith("pg_")) return t("reasons.database_error");
   return run.status === "error" || run.status === "stale"
-    ? REASON_SENTENCES.pipeline_exception
+    ? t("reasons.pipeline_exception")
     : null;
 }
 
@@ -52,8 +54,8 @@ export function runDurationMs(run: PipelineRunListItem): number | null {
   return Number.isFinite(ms) && ms >= 0 ? ms : null;
 }
 
-export function formatDuration(ms: number | null): string {
-  if (ms === null) return "—";
-  if (ms < 1000) return `${ms} ms`;
-  return `${(ms / 1000).toFixed(1)} s`;
+export function formatDuration(ms: number | null, t: Translate): string {
+  if (ms === null) return t("emDash");
+  if (ms < 1000) return t("durationMs", { count: ms });
+  return t("durationSeconds", { seconds: (ms / 1000).toFixed(1) });
 }

@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useGlobalErrorHandler } from "@/hooks/use-global-error-handler";
 import { api } from "@/lib/api/client";
@@ -18,14 +19,16 @@ export function usePeople() {
 export function useInvitePerson() {
   const queryClient = useQueryClient();
   const { handleCrudError, notifySuccess } = useGlobalErrorHandler();
+  const tSuccess = useTranslations("success");
+  const tAction = useTranslations("errors.action");
   return useMutation({
     mutationFn: (body: InviteBody) => api.invitePerson(body),
     onSuccess: async (result) => {
-      notifySuccess(result.emailed ? "Invite emailed" : "Invited");
+      notifySuccess(result.emailed ? tSuccess("inviteEmailed") : tSuccess("invited"));
       await queryClient.invalidateQueries({ queryKey: queryKeys.people.all });
     },
     onError: (error: unknown) => {
-      handleCrudError(error, { action: "send the invite" });
+      handleCrudError(error, { action: tAction("sendInvite") });
     },
   });
 }
@@ -33,15 +36,17 @@ export function useInvitePerson() {
 export function useUpdatePersonRole() {
   const queryClient = useQueryClient();
   const { handleCrudError, notifySuccess } = useGlobalErrorHandler();
+  const tSuccess = useTranslations("success");
+  const tAction = useTranslations("errors.action");
   return useMutation({
     mutationFn: (input: { userId: string; role: AssignableRole }) =>
       api.updatePersonRole(input.userId, input.role),
     onSuccess: async () => {
-      notifySuccess("Role updated");
+      notifySuccess(tSuccess("roleUpdated"));
       await queryClient.invalidateQueries({ queryKey: queryKeys.people.all });
     },
     onError: (error: unknown) => {
-      handleCrudError(error, { action: "change that role" });
+      handleCrudError(error, { action: tAction("changeRole") });
     },
   });
 }
@@ -49,14 +54,16 @@ export function useUpdatePersonRole() {
 export function useRemovePerson() {
   const queryClient = useQueryClient();
   const { handleCrudError, notifySuccess } = useGlobalErrorHandler();
+  const tSuccess = useTranslations("success");
+  const tAction = useTranslations("errors.action");
   return useMutation({
     mutationFn: (userId: string) => api.removePerson(userId),
     onSuccess: async () => {
-      notifySuccess("Removed");
+      notifySuccess(tSuccess("removed"));
       await queryClient.invalidateQueries({ queryKey: queryKeys.people.all });
     },
     onError: (error: unknown) => {
-      handleCrudError(error, { action: "remove them" });
+      handleCrudError(error, { action: tAction("removePerson") });
     },
   });
 }
@@ -64,14 +71,16 @@ export function useRemovePerson() {
 export function useAcceptInvite() {
   const queryClient = useQueryClient();
   const { handleCrudError, notifySuccess } = useGlobalErrorHandler();
+  const tSuccess = useTranslations("success");
+  const tAction = useTranslations("errors.action");
   return useMutation({
     mutationFn: (body: AcceptInviteBody) => api.acceptInvite(body),
     onSuccess: async () => {
-      notifySuccess("You're in");
+      notifySuccess(tSuccess("youreIn"));
       await queryClient.invalidateQueries();
     },
     onError: (error: unknown) => {
-      handleCrudError(error, { action: "accept the invite" });
+      handleCrudError(error, { action: tAction("acceptInvite") });
     },
   });
 }
@@ -92,6 +101,8 @@ export function useMyInvites() {
 export function useJoinInvite() {
   const queryClient = useQueryClient();
   const { handleCrudError, notifySuccess } = useGlobalErrorHandler();
+  const tSuccess = useTranslations("success");
+  const tAction = useTranslations("errors.action");
   return useMutation({
     mutationFn: async (body: { tenantId: string }) => {
       const accepted = await api.acceptInvite(body);
@@ -102,11 +113,11 @@ export function useJoinInvite() {
       return accepted;
     },
     onSuccess: async () => {
-      notifySuccess("You're in");
+      notifySuccess(tSuccess("youreIn"));
       await queryClient.invalidateQueries();
     },
     onError: (error: unknown) => {
-      handleCrudError(error, { action: "join" });
+      handleCrudError(error, { action: tAction("join") });
     },
   });
 }

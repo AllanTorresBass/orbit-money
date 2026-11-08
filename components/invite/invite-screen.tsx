@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useTranslations } from "next-intl";
 import { useJoinInvite, useMyInvites } from "@/hooks/use-people";
 import { isApiError } from "@/lib/api/api-error";
 import { cn } from "@/lib/utils";
-import { JOIN_CAPABILITY_SENTENCES, JOIN_ROLE_SENTENCES } from "@/lib/utils/display-labels";
+import { joinCapabilitySentence, joinRoleSentence } from "@/lib/utils/display-labels";
 import { fetchErrorMessage } from "@/lib/utils/handle-fetch-error";
 import type { PendingInviteDto } from "@/types/people/people.types";
 
@@ -21,15 +22,20 @@ interface InviteCardProps {
 }
 
 function InviteCard({ invite, joining, onJoin, className }: InviteCardProps) {
-  const who = invite.inviterName ?? "Someone";
+  const tCommon = useTranslations("common");
+  const tInvite = useTranslations("invite");
+  const tRoles = useTranslations("roles");
+  const who = invite.inviterName ?? tCommon("someone");
   return (
     <section className={cn("mt-10", className)}>
       <h1 className="font-[family-name:var(--font-orbit-display)] text-[28px] font-semibold tracking-tight leading-tight text-[var(--orbit-ink)]">
-        {who} invited you to {invite.tenantName}.
+        {tCommon("invitedPrefix", { name: who, tenantName: invite.tenantName })}
       </h1>
-      <p className="mt-6 text-[17px] text-[var(--orbit-ink)]">{JOIN_ROLE_SENTENCES[invite.role]}</p>
+      <p className="mt-6 text-[17px] text-[var(--orbit-ink)]">
+        {joinRoleSentence(invite.role, tRoles)}
+      </p>
       <p className="mt-1 text-[15px] text-[var(--orbit-secondary)]">
-        {JOIN_CAPABILITY_SENTENCES[invite.role]}
+        {joinCapabilitySentence(invite.role, tRoles)}
       </p>
       <button
         type="button"
@@ -37,7 +43,7 @@ function InviteCard({ invite, joining, onJoin, className }: InviteCardProps) {
         onClick={() => onJoin(invite.tenantId)}
         className="mt-10 w-full orbit-btn disabled:opacity-60"
       >
-        Join {invite.tenantName}
+        {tInvite("join", { tenantName: invite.tenantName })}
       </button>
     </section>
   );
@@ -48,6 +54,9 @@ export function InviteScreen({ className }: InviteScreenProps) {
   const router = useRouter();
   const invites = useMyInvites();
   const join = useJoinInvite();
+  const t = useTranslations("invite");
+  const tCommon = useTranslations("common");
+  const tErrors = useTranslations("errors");
 
   function onJoin(tenantId: string): void {
     join.mutate(
@@ -80,14 +89,20 @@ export function InviteScreen({ className }: InviteScreenProps) {
     return (
       <div className={cn("mx-auto max-w-md px-5 pt-16", className)}>
         <p className="text-[17px] text-[var(--orbit-short)]">
-          {fetchErrorMessage(invites.error, "your invite")}
+          {fetchErrorMessage(invites.error, tErrors("resource.yourInvite"), {
+            chooseHousehold: tErrors("chooseHousehold"),
+            signIn: tErrors("signIn"),
+            cannotSee: tErrors("cannotSee"),
+            offline: tErrors("offline"),
+            couldNotLoad: tErrors("couldNotLoad"),
+          })}
         </p>
         {signedOut ? (
           <Link
             href="/signin?callbackUrl=/invite"
             className="mt-6 block text-[17px] text-[var(--orbit-ink)]"
           >
-            Sign in
+            {t("signIn")}
           </Link>
         ) : (
           <button
@@ -97,7 +112,7 @@ export function InviteScreen({ className }: InviteScreenProps) {
               void invites.refetch();
             }}
           >
-            Try again
+            {tCommon("tryAgain")}
           </button>
         )}
       </div>
@@ -108,9 +123,9 @@ export function InviteScreen({ className }: InviteScreenProps) {
   if (pending.length === 0) {
     return (
       <div className={cn("mx-auto max-w-md px-5 pt-16", className)}>
-        <p className="text-[17px] text-[var(--orbit-ink)]">No invites are waiting.</p>
+        <p className="text-[17px] text-[var(--orbit-ink)]">{t("empty")}</p>
         <Link href="/today" className="mt-6 block text-[17px] text-[var(--orbit-ink)]">
-          Go to Today
+          {t("goToday")}
         </Link>
       </div>
     );

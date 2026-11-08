@@ -2,9 +2,11 @@ import { randomUUID } from "node:crypto";
 import type { PoolClient } from "pg";
 import { canManagePeople, type MembershipRole } from "@/lib/auth/permissions";
 import { withTransaction } from "@/lib/db/connection";
+import { normalizeLocale } from "@/i18n/config";
 import { buildInviteHint, sendInviteEmail } from "@/lib/email/invite-email";
 import { isEmailConfigured } from "@/lib/email/resend";
 import { BaseService } from "@/lib/services/base/BaseService";
+import { DEFAULT_LOCALE } from "@/types/i18n/locale.types";
 import type {
   AssignableRole,
   InviteResult,
@@ -100,8 +102,13 @@ export class PeopleService extends BaseService {
         throw new Error("Conflict");
       }
 
-      const context = await client.query<{ tenant_name: string; inviter_name: string }>(
-        `SELECT t.name AS tenant_name, COALESCE(u.name, '') AS inviter_name
+      const context = await client.query<{
+        tenant_name: string;
+        inviter_name: string;
+        preferred_locale: string;
+      }>(
+        `SELECT t.name AS tenant_name, COALESCE(u.name, '') AS inviter_name,
+                u.preferred_locale
          FROM tenants t
          LEFT JOIN users u ON u.id = $2
          WHERE t.id = $1`,
@@ -114,6 +121,7 @@ export class PeopleService extends BaseService {
         status: upserted.rows[0].status,
         tenantName: context.rows[0]?.tenant_name ?? "your household",
         inviterName: context.rows[0]?.inviter_name ?? "",
+        inviterLocale: normalizeLocale(context.rows[0]?.preferred_locale ?? DEFAULT_LOCALE),
       };
     });
 
@@ -129,6 +137,7 @@ export class PeopleService extends BaseService {
           inviterName: invited.inviterName,
           tenantName: invited.tenantName,
           link: inviteHint,
+          locale: invited.inviterLocale,
         });
         emailed = true;
       } catch (error: unknown) {

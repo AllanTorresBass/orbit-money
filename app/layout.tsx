@@ -1,5 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { NextIntlClientProvider } from "next-intl";
+import { getLocale, getMessages, getTranslations } from "next-intl/server";
 import { AppProviders } from "@/components/providers/app-providers";
 import "./globals.css";
 
@@ -13,10 +15,13 @@ const orbitMono = Geist_Mono({
   variable: "--font-orbit-mono",
 });
 
-export const metadata: Metadata = {
-  title: "Orbit",
-  description: "What you can spend today.",
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getTranslations("common");
+  return {
+    title: t("brand"),
+    description: t("metaDescription"),
+  };
+}
 
 export const viewport: Viewport = {
   themeColor: [
@@ -26,18 +31,23 @@ export const viewport: Viewport = {
   colorScheme: "light dark",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const locale = await getLocale();
+  const messages = await getMessages();
+
   return (
-    <html lang="en" className="bg-background" suppressHydrationWarning>
+    <html lang={locale} className="bg-background" suppressHydrationWarning>
       <body
         className={`${orbitSans.variable} ${orbitMono.variable} antialiased`}
         suppressHydrationWarning
       >
-        <AppProviders>{children}</AppProviders>
+        <NextIntlClientProvider locale={locale} messages={messages}>
+          <AppProviders>{children}</AppProviders>
+        </NextIntlClientProvider>
       </body>
     </html>
   );
