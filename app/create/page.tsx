@@ -54,6 +54,24 @@ function CreateForm() {
     setStep(next);
   }
 
+  /** Step 1 leaves Create. Later steps only move within the wizard. */
+  function onBack(): void {
+    if (step === 2) {
+      void goTo(1);
+      return;
+    }
+    if (step === 3) {
+      void goTo(2);
+      return;
+    }
+    // Sign in sends unknown emails here with ?email=. You opens /create bare.
+    if (searchParams.get("email")) {
+      router.push("/signin");
+      return;
+    }
+    router.push("/you");
+  }
+
   function onSubmit(values: CreateSpaceForm): void {
     const paydayAmountCents = parseDollarsToCents(values.amount);
     if (paydayAmountCents === null) return;
@@ -105,6 +123,9 @@ function CreateForm() {
       noValidate
     >
       <p className="text-[15px] text-[var(--orbit-secondary)]">{step} of 3</p>
+      <button type="button" className="orbit-dismiss mt-4" onClick={onBack}>
+        Back
+      </button>
       {step === 1 ? (
         <>
           <h1 className="mt-4 font-[family-name:var(--font-orbit-display)] text-[28px] font-semibold tracking-tight text-[var(--orbit-ink)]">
@@ -154,15 +175,6 @@ function CreateForm() {
 
       {step === 2 ? (
         <>
-          <button
-            type="button"
-            className="orbit-dismiss"
-            onClick={() => {
-              void goTo(1);
-            }}
-          >
-            Back
-          </button>
           <h1 className="mt-4 font-[family-name:var(--font-orbit-display)] text-[28px] font-semibold tracking-tight text-[var(--orbit-ink)]">
             When does money usually arrive?
           </h1>
@@ -255,15 +267,6 @@ function CreateForm() {
 
       {step === 3 ? (
         <>
-          <button
-            type="button"
-            className="orbit-dismiss"
-            onClick={() => {
-              void goTo(2);
-            }}
-          >
-            Back
-          </button>
           <h1 className="mt-4 font-[family-name:var(--font-orbit-display)] text-[28px] font-semibold tracking-tight text-[var(--orbit-ink)]">
             About how much arrives?
           </h1>
