@@ -1,4 +1,5 @@
-import { escapeHtml } from "@/lib/email/resend";
+import { ORBIT_MARK_CONTENT_ID, ORBIT_MARK_PNG_BASE64 } from "@/lib/email/orbit-mark";
+import { escapeHtml, type ResendAttachment } from "@/lib/email/resend";
 
 const SUBJECT = "Sign in to Orbit";
 
@@ -6,6 +7,7 @@ export interface SignInEmail {
   subject: string;
   text: string;
   html: string;
+  attachments: ResendAttachment[];
 }
 
 /**
@@ -36,8 +38,17 @@ export function renderSignInEmail(input: { url: string }): SignInEmail {
         <td align="center" style="padding:40px 24px;">
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:480px;">
             <tr>
-              <td style="font-family:Georgia,'Times New Roman',serif;font-size:22px;font-weight:600;line-height:1.2;color:#1C1917;">
-                Orbit
+              <td>
+                <table role="presentation" cellpadding="0" cellspacing="0">
+                  <tr>
+                    <td style="vertical-align:middle;padding-right:10px;">
+                      <img src="cid:${ORBIT_MARK_CONTENT_ID}" width="32" height="32" alt="" style="display:block;border:0;border-radius:8px;" />
+                    </td>
+                    <td style="vertical-align:middle;font-family:Georgia,'Times New Roman',serif;font-size:22px;font-weight:600;line-height:1.2;color:#1C1917;">
+                      Orbit
+                    </td>
+                  </tr>
+                </table>
               </td>
             </tr>
             <tr>
@@ -67,5 +78,16 @@ export function renderSignInEmail(input: { url: string }): SignInEmail {
   </body>
 </html>`;
 
-  return { subject: SUBJECT, text, html };
+  return {
+    subject: SUBJECT,
+    text,
+    html,
+    attachments: [
+      {
+        filename: "orbit-mark.png",
+        content: ORBIT_MARK_PNG_BASE64,
+        contentId: ORBIT_MARK_CONTENT_ID,
+      },
+    ],
+  };
 }
