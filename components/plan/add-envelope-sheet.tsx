@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { useState } from "react";
 import { OrbitSheet } from "@/components/shell/orbit-sheet";
 import { useCreateEnvelope } from "@/hooks/use-plan-mutations";
@@ -23,6 +24,9 @@ export function AddEnvelopeSheet({
   onClose,
   className,
 }: AddEnvelopeSheetProps) {
+  const t = useTranslations("plan");
+  const tCommon = useTranslations("common");
+  const tErrors = useTranslations("errors");
   const create = useCreateEnvelope(kind);
   const { handleCrudError } = useGlobalErrorHandler();
   const [name, setName] = useState(kind === "fixed" ? "Rent" : "Vacation");
@@ -37,7 +41,7 @@ export function AddEnvelopeSheet({
     const capCents = parseDollarsToCents(cap);
     if (!name.trim() || amountCents === null || amountCents <= 0) {
       handleCrudError(new Error("Invalid amount"), {
-        action: kind === "fixed" ? "save the bill" : "save the goal",
+        action: kind === "fixed" ? tErrors("action.saveBill") : tErrors("action.saveGoal"),
       });
       return;
     }
@@ -56,12 +60,12 @@ export function AddEnvelopeSheet({
 
   return (
     <OrbitSheet
-      title={kind === "fixed" ? "Add a bill" : "Add a goal"}
+      title={kind === "fixed" ? t("addBillTitle") : t("addGoalTitle")}
       onClose={onClose}
       className={className}
     >
         <label className="mt-6 block text-[15px] text-[var(--orbit-secondary)]">
-          Name
+          {tCommon("name")}
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
@@ -69,7 +73,7 @@ export function AddEnvelopeSheet({
           />
         </label>
         <label className="mt-4 block text-[15px] text-[var(--orbit-secondary)]">
-          {kind === "fixed" ? "Amount each payday" : "Set aside each payday"}
+          {kind === "fixed" ? t("amountEachPayday") : t("setAsideEachPayday")}
           <div className="mt-1 flex items-baseline gap-1">
             <span className="text-[var(--orbit-ink)]">$</span>
             <input
@@ -82,7 +86,7 @@ export function AddEnvelopeSheet({
         </label>
         {kind === "sinking" ? (
           <label className="mt-4 block text-[15px] text-[var(--orbit-secondary)]">
-            Stop when it reaches
+            {t("stopWhen")}
             <div className="mt-1 flex items-baseline gap-1">
               <span className="text-[var(--orbit-ink)]">$</span>
               <input
@@ -95,7 +99,7 @@ export function AddEnvelopeSheet({
           </label>
         ) : (
           <label className="mt-4 block text-[15px] text-[var(--orbit-secondary)]">
-            Leaves the bank
+            {t("leavesBank")}
             <input
               type="date"
               value={dueDate}
@@ -110,7 +114,7 @@ export function AddEnvelopeSheet({
           onClick={submit}
           className="mt-8 w-full orbit-btn disabled:opacity-60"
         >
-          {mode === "suggest" ? "Suggest this change" : "Save"}
+          {mode === "suggest" ? t("suggestChange") : tCommon("save")}
         </button>
     </OrbitSheet>
   );

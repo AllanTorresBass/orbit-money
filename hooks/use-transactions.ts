@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useGlobalErrorHandler } from "@/hooks/use-global-error-handler";
 import { api } from "@/lib/api/client";
@@ -11,15 +12,17 @@ import type { RecordInflowBody, RecordOutflowBody } from "@/types/transactions/t
 export function useRecordInflow() {
   const queryClient = useQueryClient();
   const { handleCrudError, notifySuccess } = useGlobalErrorHandler();
+  const tSuccess = useTranslations("success");
+  const tAction = useTranslations("errors.action");
   return useMutation({
     mutationFn: (body: RecordInflowBody) => api.recordInflow(body),
     onSuccess: async () => {
-      notifySuccess("Payday recorded");
+      notifySuccess(tSuccess("paydayRecorded"));
       await invalidateMoneyQueries(queryClient);
       await queryClient.invalidateQueries({ queryKey: queryKeys.pipeline.all });
     },
     onError: (error: unknown) => {
-      handleCrudError(error, { action: "record the payday" });
+      handleCrudError(error, { action: tAction("recordPayday") });
     },
   });
 }
@@ -28,15 +31,17 @@ export function useRecordInflow() {
 export function useRecordOutflow() {
   const queryClient = useQueryClient();
   const { handleCrudError, notifySuccess } = useGlobalErrorHandler();
+  const tSuccess = useTranslations("success");
+  const tAction = useTranslations("errors.action");
   return useMutation({
     mutationFn: (body: RecordOutflowBody) => api.recordOutflow(body),
     onSuccess: async () => {
-      notifySuccess("Payment recorded");
+      notifySuccess(tSuccess("paymentRecorded"));
       await invalidateMoneyQueries(queryClient);
       await queryClient.invalidateQueries({ queryKey: queryKeys.pipeline.all });
     },
     onError: (error: unknown) => {
-      handleCrudError(error, { action: "record the payment" });
+      handleCrudError(error, { action: tAction("recordPayment") });
     },
   });
 }
@@ -45,15 +50,17 @@ export function useRecordOutflow() {
 export function useVoidTransaction() {
   const queryClient = useQueryClient();
   const { handleCrudError, notifySuccess } = useGlobalErrorHandler();
+  const tSuccess = useTranslations("success");
+  const tAction = useTranslations("errors.action");
   return useMutation({
     mutationFn: (transactionId: string) => api.voidTransaction(transactionId),
     onSuccess: async () => {
-      notifySuccess("Purchase undone");
+      notifySuccess(tSuccess("purchaseUndone"));
       await invalidateMoneyQueries(queryClient);
       await queryClient.invalidateQueries({ queryKey: queryKeys.pipeline.all });
     },
     onError: (error: unknown) => {
-      handleCrudError(error, { action: "undo that purchase" });
+      handleCrudError(error, { action: tAction("undoPurchase") });
     },
   });
 }

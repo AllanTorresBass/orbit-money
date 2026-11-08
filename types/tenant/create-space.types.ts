@@ -28,27 +28,28 @@ export const PAYDAY_DAY_CHOICES: PaydayDayChoice[] = [
   { value: LAST_DAY_OF_MONTH, label: "Last day" },
 ];
 
+/** Zod messages are catalog keys under `create.*`, resolved in the Create UI. */
 export const paydayDaySchema = z
   .number()
   .int()
-  .refine((day) => day === LAST_DAY_OF_MONTH || (day >= 1 && day <= 28), "Pick a day");
+  .refine((day) => day === LAST_DAY_OF_MONTH || (day >= 1 && day <= 28), "pickDay");
 
 export const createSpaceFormSchema = z
   .object({
-    name: z.string().trim().min(1, "Give it a name").max(100),
+    name: z.string().trim().min(1, "nameRequired").max(100),
     tenantType: z.enum(["individual", "household", "organization"]),
     cadence: z.enum(CADENCES),
     nextPayday: isoDateSchema,
     amount: z.string().refine((value) => {
       const cents = parseDollarsToCents(value);
       return cents !== null && cents > 0;
-    }, "Enter a payday amount"),
+    }, "amountRequired"),
     firstDay: paydayDaySchema,
     secondDay: paydayDaySchema,
     monthDay: paydayDaySchema,
   })
   .refine((form) => form.cadence !== "Twice a month" || form.firstDay !== form.secondDay, {
-    message: "Pick two different days",
+    message: "twoDifferentDays",
     path: ["secondDay"],
   });
 

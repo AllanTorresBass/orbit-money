@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { useState } from "react";
 import { OrbitSheet } from "@/components/shell/orbit-sheet";
 import { useGlobalErrorHandler } from "@/hooks/use-global-error-handler";
@@ -16,6 +17,9 @@ export interface EditPaydaySheetProps {
 
 /** Change what the next payday brings or the day it lands. Owner and admin only. */
 export function EditPaydaySheet({ payday, onClose, className }: EditPaydaySheetProps) {
+  const t = useTranslations("plan");
+  const tCommon = useTranslations("common");
+  const tErrors = useTranslations("errors");
   const [dollars, setDollars] = useState(dollarsFromCents(payday.amountCents));
   const [date, setDate] = useState(payday.date);
   const update = useUpdateSchedule();
@@ -24,11 +28,9 @@ export function EditPaydaySheet({ payday, onClose, className }: EditPaydaySheetP
   function onSave(): void {
     const amountCents = parseDollarsToCents(dollars);
     if (amountCents === null || amountCents <= 0 || date === "") {
-      handleCrudError(new Error("Invalid amount"), { action: "save the payday" });
+      handleCrudError(new Error("Invalid amount"), { action: tErrors("action.savePayday") });
       return;
     }
-    // Send only what changed. The date shown is the day the deposit lands, which can differ
-    // from the schedule's own date on a weekend, so an untouched date is never written back.
     const body: UpdateScheduleBody = {};
     if (amountCents !== payday.amountCents) body.amountCents = amountCents;
     if (date !== payday.date) body.nextDueDate = date;
@@ -40,9 +42,9 @@ export function EditPaydaySheet({ payday, onClose, className }: EditPaydaySheetP
   }
 
   return (
-    <OrbitSheet title="Edit payday" onClose={onClose} className={className}>
+    <OrbitSheet title={t("editPaydayTitle")} onClose={onClose} className={className}>
         <label className="mt-6 block text-[15px] text-[var(--orbit-secondary)]">
-          Amount
+          {tCommon("amount")}
           <div className="mt-1 flex items-baseline gap-1">
             <span>$</span>
             <input
@@ -54,7 +56,7 @@ export function EditPaydaySheet({ payday, onClose, className }: EditPaydaySheetP
           </div>
         </label>
         <label className="mt-4 block text-[15px] text-[var(--orbit-secondary)]">
-          Next payday
+          {t("nextPayday")}
           <input
             type="date"
             value={date}
@@ -68,7 +70,7 @@ export function EditPaydaySheet({ payday, onClose, className }: EditPaydaySheetP
           onClick={onSave}
           className="mt-8 w-full orbit-btn disabled:opacity-60"
         >
-          Save
+          {tCommon("save")}
         </button>
     </OrbitSheet>
   );

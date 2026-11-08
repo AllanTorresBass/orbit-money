@@ -1,5 +1,6 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
 import { useState } from "react";
 import { useAccounts, useCreateAccount, useUpdateAccountBalance } from "@/hooks/use-accounts";
 import { useGlobalErrorHandler } from "@/hooks/use-global-error-handler";
@@ -14,10 +15,15 @@ export interface BankSectionProps {
 }
 
 export function BankSection({ canManage, className }: BankSectionProps) {
+  const locale = useLocale();
   const accounts = useAccounts();
   const updateBalance = useUpdateAccountBalance();
   const createAccount = useCreateAccount();
   const { handleCrudError } = useGlobalErrorHandler();
+  const t = useTranslations("you");
+  const tCommon = useTranslations("common");
+  const tErrors = useTranslations("errors");
+  const fmt = (cents: number) => formatMoney(cents, { locale });
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [balanceText, setBalanceText] = useState("");
@@ -28,7 +34,7 @@ export function BankSection({ canManage, className }: BankSectionProps) {
   function saveBalance(id: string): void {
     const balanceCents = parseDollarsToCents(balanceText, { allowNegative: true });
     if (balanceCents === null) {
-      handleCrudError(new Error("Invalid amount"), { action: "update the balance" });
+      handleCrudError(new Error("Invalid amount"), { action: tErrors("action.updateBalance") });
       return;
     }
     updateBalance.mutate({ id, balanceCents }, { onSuccess: () => setEditingId(null) });
@@ -37,7 +43,7 @@ export function BankSection({ canManage, className }: BankSectionProps) {
   function saveNewAccount(): void {
     const balanceCents = parseDollarsToCents(newBalance, { allowNegative: true });
     if (!newName.trim() || balanceCents === null) {
-      handleCrudError(new Error("Invalid account"), { action: "add the account" });
+      handleCrudError(new Error("Invalid account"), { action: tErrors("action.addAccount") });
       return;
     }
     createAccount.mutate(
@@ -56,18 +62,22 @@ export function BankSection({ canManage, className }: BankSectionProps) {
 
   return (
     <section className={cn("mt-10", className)}>
-      <h2 className="text-[15px] font-medium text-[var(--orbit-ink)]">Bank</h2>
-      <p className="mt-2 text-[15px] text-[var(--orbit-secondary)]">
-        Ahead checks this balance.
-      </p>
+      <h2 className="text-[15px] font-medium text-[var(--orbit-ink)]">{t("bankTitle")}</h2>
+      <p className="mt-2 text-[15px] text-[var(--orbit-secondary)]">{t("bankSubtitle")}</p>
       {accounts.isLoading ? (
-        <p className="mt-2 text-[15px] text-[var(--orbit-secondary)]">Loading…</p>
+        <p className="mt-2 text-[15px] text-[var(--orbit-secondary)]">{tCommon("loading")}</p>
       ) : accounts.isError ? (
         <p className="mt-2 text-[15px] text-[var(--orbit-short)]">
-          {fetchErrorMessage(accounts.error, "your bank")}
+          {fetchErrorMessage(accounts.error, tErrors("resource.yourBank"), {
+            chooseHousehold: tErrors("chooseHousehold"),
+            signIn: tErrors("signIn"),
+            cannotSee: tErrors("cannotSee"),
+            offline: tErrors("offline"),
+            couldNotLoad: tErrors("couldNotLoad"),
+          })}
         </p>
       ) : list.length === 0 ? (
-        <p className="mt-2 text-[15px] text-[var(--orbit-secondary)]">No accounts yet.</p>
+        <p className="mt-2 text-[15px] text-[var(--orbit-secondary)]">{t("noAccounts")}</p>
       ) : (
         <ul className="mt-2">
           {list.map((account) => (
@@ -76,10 +86,12 @@ export function BankSection({ canManage, className }: BankSectionProps) {
                 <span className="min-w-0 truncate">
                   {account.name}
                   {account.isEveryday ? (
-                    <span className="ml-2 text-[13px] text-[var(--orbit-secondary)]">Everyday</span>
+                    <span className="ml-2 text-[13px] text-[var(--orbit-secondary)]">
+                      {tCommon("everyday")}
+                    </span>
                   ) : null}
                 </span>
-                <span className="shrink-0 tabular-nums">{formatMoney(account.balanceCents)}</span>
+                <span className="shrink-0 tabular-nums">{fmt(account.balanceCents)}</span>
               </div>
               {canManage ? (
                 editingId === account.id ? (
@@ -90,7 +102,7 @@ export function BankSection({ canManage, className }: BankSectionProps) {
                       onChange={(e) => setBalanceText(e.target.value)}
                       className="min-w-0 flex-1 orbit-field"
                       inputMode="decimal"
-                      aria-label={`${account.name} balance`}
+                      aria-label={t("balanceAria")}
                     />
                     <button
                       type="button"
@@ -98,14 +110,14 @@ export function BankSection({ canManage, className }: BankSectionProps) {
                       className="text-[15px] text-[var(--orbit-ink)] disabled:opacity-60"
                       onClick={() => saveBalance(account.id)}
                     >
-                      Save
+                      {tCommon("save")}
                     </button>
                     <button
                       type="button"
                       className="text-[15px] text-[var(--orbit-secondary)]"
                       onClick={() => setEditingId(null)}
                     >
-                      Cancel
+                      {tCommon("cancel")}
                     </button>
                   </div>
                 ) : (
@@ -117,7 +129,7 @@ export function BankSection({ canManage, className }: BankSectionProps) {
                       setBalanceText(dollarsFromCents(account.balanceCents));
                     }}
                   >
-                    Update balance
+                    {t("updateBalance")}
                   </button>
                 )
               ) : null}
@@ -132,8 +144,8 @@ export function BankSection({ canManage, className }: BankSectionProps) {
             <input
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
-              placeholder="Account name"
-              aria-label="Account name"
+              placeholder={t("accountName")}
+              aria-label={t("accountName")}
               className="w-full orbit-field"
             />
             <div className="mt-3 flex items-baseline gap-1">
@@ -141,8 +153,8 @@ export function BankSection({ canManage, className }: BankSectionProps) {
               <input
                 value={newBalance}
                 onChange={(e) => setNewBalance(e.target.value)}
-                placeholder="Balance"
-                aria-label="Account balance"
+                placeholder={t("balance")}
+                aria-label={t("balanceAria")}
                 inputMode="decimal"
                 className="w-full min-w-0 orbit-field"
               />
@@ -154,14 +166,14 @@ export function BankSection({ canManage, className }: BankSectionProps) {
                 className="text-[17px] text-[var(--orbit-ink)] disabled:opacity-60"
                 onClick={saveNewAccount}
               >
-                Add account
+                {t("addAccount")}
               </button>
               <button
                 type="button"
                 className="text-[15px] text-[var(--orbit-secondary)]"
                 onClick={() => setAdding(false)}
               >
-                Cancel
+                {tCommon("cancel")}
               </button>
             </div>
           </div>
@@ -171,7 +183,7 @@ export function BankSection({ canManage, className }: BankSectionProps) {
             className="mt-3 text-[15px] text-[var(--orbit-ink)]"
             onClick={() => setAdding(true)}
           >
-            Add an account
+            {t("addAnAccount")}
           </button>
         )
       ) : null}

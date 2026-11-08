@@ -1,5 +1,6 @@
-import { formatMoney } from "@/lib/utils";
 import type { ForecastDayDetailDto } from "@/types/forecast/forecast.types";
+
+type Translate = (key: string, values?: Record<string, string | number>) => string;
 
 /** One sentence that explains a single day in plain words. */
 export function dayNarrative(
@@ -7,25 +8,27 @@ export function dayNarrative(
     ForecastDayDetailDto,
     "inflowCents" | "scheduledOutflowCents" | "status" | "keepAtLeastCents"
   >,
+  formatMoney: (cents: number) => string,
+  t: Translate,
 ): string {
   const hasInflow = day.inflowCents > 0;
   const hasOutflow = day.scheduledOutflowCents > 0;
 
   const event =
     hasInflow && hasOutflow
-      ? "Payday arrives and bills leave the bank"
+      ? t("eventBoth")
       : hasInflow
-        ? "Payday arrives"
+        ? t("eventInflow")
         : hasOutflow
-          ? "Bills leave the bank"
-          : "Only everyday spending happens";
+          ? t("eventOutflow")
+          : t("eventNone");
 
   const keep = formatMoney(day.keepAtLeastCents);
   if (day.status === "breach") {
-    return `${event}, and the bank ends the day below the ${keep} you want to keep.`;
+    return t("narrativeBreach", { event, amount: keep });
   }
   if (day.status === "warning") {
-    return `${event}, and the bank ends the day close to the ${keep} you want to keep.`;
+    return t("narrativeWarning", { event, amount: keep });
   }
-  return `${event}.`;
+  return t("narrativeOk", { event });
 }

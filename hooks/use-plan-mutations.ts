@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useGlobalErrorHandler } from "@/hooks/use-global-error-handler";
 import { api } from "@/lib/api/client";
@@ -30,17 +31,25 @@ export function useProposals(enabled: boolean) {
 export function useCreateEnvelope(kind: EnvelopePayload["tierCategory"]) {
   const queryClient = useQueryClient();
   const { handleCrudError, notifySuccess } = useGlobalErrorHandler();
+  const tSuccess = useTranslations("success");
+  const tAction = useTranslations("errors.action");
   return useMutation({
     mutationFn: (body: EnvelopePayload) => api.createEnvelope(body),
     onSuccess: async (result) => {
       notifySuccess(
-        isSuggestion(result) ? "Someone can review this." : kind === "fixed" ? "Bill added" : "Goal added",
+        isSuggestion(result)
+          ? tSuccess("suggestionSent")
+          : kind === "fixed"
+            ? tSuccess("billAdded")
+            : tSuccess("goalAdded"),
       );
       await invalidateMoneyQueries(queryClient);
       await queryClient.invalidateQueries({ queryKey: queryKeys.proposals.all });
     },
     onError: (error: unknown) => {
-      handleCrudError(error, { action: kind === "fixed" ? "save the bill" : "save the goal" });
+      handleCrudError(error, {
+        action: kind === "fixed" ? tAction("saveBill") : tAction("saveGoal"),
+      });
     },
   });
 }
@@ -48,16 +57,18 @@ export function useCreateEnvelope(kind: EnvelopePayload["tierCategory"]) {
 export function useUpdateEnvelope() {
   const queryClient = useQueryClient();
   const { handleCrudError, notifySuccess } = useGlobalErrorHandler();
+  const tSuccess = useTranslations("success");
+  const tAction = useTranslations("errors.action");
   return useMutation({
     mutationFn: (input: { id: string; body: EnvelopePayload }) =>
       api.updateEnvelope(input.id, input.body),
     onSuccess: async (result) => {
-      notifySuccess(isSuggestion(result) ? "Someone can review this." : "Saved");
+      notifySuccess(isSuggestion(result) ? tSuccess("suggestionSent") : tSuccess("saved"));
       await invalidateMoneyQueries(queryClient);
       await queryClient.invalidateQueries({ queryKey: queryKeys.proposals.all });
     },
     onError: (error: unknown) => {
-      handleCrudError(error, { action: "save the change" });
+      handleCrudError(error, { action: tAction("saveChange") });
     },
   });
 }
@@ -65,14 +76,16 @@ export function useUpdateEnvelope() {
 export function useReorderEnvelopes() {
   const queryClient = useQueryClient();
   const { handleCrudError, notifySuccess } = useGlobalErrorHandler();
+  const tSuccess = useTranslations("success");
+  const tAction = useTranslations("errors.action");
   return useMutation({
     mutationFn: (body: ReorderEnvelopesBody) => api.reorderEnvelopes(body),
     onSuccess: async () => {
-      notifySuccess("Priority updated");
+      notifySuccess(tSuccess("priorityUpdated"));
       await invalidateMoneyQueries(queryClient);
     },
     onError: (error: unknown) => {
-      handleCrudError(error, { action: "change the order" });
+      handleCrudError(error, { action: tAction("changeOrder") });
     },
   });
 }
@@ -80,16 +93,18 @@ export function useReorderEnvelopes() {
 export function useResolveProposal() {
   const queryClient = useQueryClient();
   const { handleCrudError, notifySuccess } = useGlobalErrorHandler();
+  const tSuccess = useTranslations("success");
+  const tAction = useTranslations("errors.action");
   return useMutation({
     mutationFn: (input: { id: string; decision: ProposalDecision }) =>
       api.resolveProposal(input.id, input.decision),
     onSuccess: async (_result, input) => {
-      notifySuccess(input.decision === "accepted" ? "Accepted" : "Declined");
+      notifySuccess(input.decision === "accepted" ? tSuccess("accepted") : tSuccess("declined"));
       await invalidateMoneyQueries(queryClient);
       await queryClient.invalidateQueries({ queryKey: queryKeys.proposals.all });
     },
     onError: (error: unknown) => {
-      handleCrudError(error, { action: "answer that suggestion" });
+      handleCrudError(error, { action: tAction("answerSuggestion") });
     },
   });
 }
@@ -98,21 +113,24 @@ export function useResolveProposal() {
 export function useRemoveEnvelope(kind: EnvelopePayload["tierCategory"]) {
   const queryClient = useQueryClient();
   const { handleCrudError, notifySuccess } = useGlobalErrorHandler();
-  const noun = kind === "fixed" ? "bill" : "goal";
+  const tSuccess = useTranslations("success");
+  const tAction = useTranslations("errors.action");
   return useMutation({
     mutationFn: (id: string) => api.removeEnvelope(id),
     onSuccess: async (result) => {
       notifySuccess(
         result.archived
           ? kind === "fixed"
-            ? "Bill removed"
-            : "Goal removed"
-          : "Bill taken off payday. Its money stays set aside.",
+            ? tSuccess("billRemoved")
+            : tSuccess("goalRemoved")
+          : tSuccess("billOffPayday"),
       );
       await invalidateMoneyQueries(queryClient);
     },
     onError: (error: unknown) => {
-      handleCrudError(error, { action: `remove the ${noun}` });
+      handleCrudError(error, {
+        action: kind === "fixed" ? tAction("removeBill") : tAction("removeGoal"),
+      });
     },
   });
 }
@@ -121,15 +139,17 @@ export function useRemoveEnvelope(kind: EnvelopePayload["tierCategory"]) {
 export function useUpdateSchedule() {
   const queryClient = useQueryClient();
   const { handleCrudError, notifySuccess } = useGlobalErrorHandler();
+  const tSuccess = useTranslations("success");
+  const tAction = useTranslations("errors.action");
   return useMutation({
     mutationFn: (input: { id: string; body: UpdateScheduleBody }) =>
       api.updateSchedule(input.id, input.body),
     onSuccess: async () => {
-      notifySuccess("Saved");
+      notifySuccess(tSuccess("saved"));
       await invalidateMoneyQueries(queryClient);
     },
     onError: (error: unknown) => {
-      handleCrudError(error, { action: "save the schedule" });
+      handleCrudError(error, { action: tAction("saveSchedule") });
     },
   });
 }
@@ -138,14 +158,16 @@ export function useUpdateSchedule() {
 export function useMoveEnvelopeToSpending() {
   const queryClient = useQueryClient();
   const { handleCrudError, notifySuccess } = useGlobalErrorHandler();
+  const tSuccess = useTranslations("success");
+  const tAction = useTranslations("errors.action");
   return useMutation({
     mutationFn: (id: string) => api.moveEnvelopeToSpending(id),
     onSuccess: async () => {
-      notifySuccess("Moved to Spending");
+      notifySuccess(tSuccess("movedToSpending"));
       await invalidateMoneyQueries(queryClient);
     },
     onError: (error: unknown) => {
-      handleCrudError(error, { action: "move that money" });
+      handleCrudError(error, { action: tAction("moveMoney") });
     },
   });
 }

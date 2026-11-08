@@ -1,5 +1,6 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useGlobalErrorHandler } from "@/hooks/use-global-error-handler";
 import { api } from "@/lib/api/client";
@@ -18,14 +19,16 @@ export function useAccounts() {
 export function useCreateAccount() {
   const queryClient = useQueryClient();
   const { handleCrudError, notifySuccess } = useGlobalErrorHandler();
+  const tSuccess = useTranslations("success");
+  const tAction = useTranslations("errors.action");
   return useMutation({
     mutationFn: (body: CreateAccountBody) => api.createAccount(body),
     onSuccess: async () => {
-      notifySuccess("Account added");
+      notifySuccess(tSuccess("accountAdded"));
       await invalidateMoneyQueries(queryClient);
     },
     onError: (error: unknown) => {
-      handleCrudError(error, { action: "add the account" });
+      handleCrudError(error, { action: tAction("addAccount") });
     },
   });
 }
@@ -33,15 +36,17 @@ export function useCreateAccount() {
 export function useUpdateAccountBalance() {
   const queryClient = useQueryClient();
   const { handleCrudError, notifySuccess } = useGlobalErrorHandler();
+  const tSuccess = useTranslations("success");
+  const tAction = useTranslations("errors.action");
   return useMutation({
     mutationFn: (input: { id: string; balanceCents: number }) =>
       api.updateAccountBalance(input.id, input.balanceCents),
     onSuccess: async () => {
-      notifySuccess("Balance updated");
+      notifySuccess(tSuccess("balanceUpdated"));
       await invalidateMoneyQueries(queryClient);
     },
     onError: (error: unknown) => {
-      handleCrudError(error, { action: "update the balance" });
+      handleCrudError(error, { action: tAction("updateBalance") });
     },
   });
 }
@@ -49,15 +54,20 @@ export function useUpdateAccountBalance() {
 /** "Keep at least" amount. */
 export function useUpdateFloor() {
   const queryClient = useQueryClient();
+  const locale = useLocale();
   const { handleCrudError, notifySuccess } = useGlobalErrorHandler();
+  const tSuccess = useTranslations("success");
+  const tAction = useTranslations("errors.action");
   return useMutation({
     mutationFn: (floorCents: number) => api.updateFloor(floorCents),
     onSuccess: async (result) => {
-      notifySuccess(`Keep at least ${formatMoney(result.floorCents)}`);
+      notifySuccess(
+        tSuccess("keepAtLeast", { amount: formatMoney(result.floorCents, { locale }) }),
+      );
       await invalidateMoneyQueries(queryClient);
     },
     onError: (error: unknown) => {
-      handleCrudError(error, { action: "save that amount" });
+      handleCrudError(error, { action: tAction("saveKeepAtLeast") });
     },
   });
 }

@@ -7,6 +7,7 @@ import type {
   ForecastDayDetailDto,
   ForecastListResponse,
 } from "@/types/forecast/forecast.types";
+import type { AppLocale } from "@/types/i18n/locale.types";
 import type { MeDto, TenantChoice } from "@/types/me/me.types";
 import type { ClientLogBody } from "@/types/observability/client-log.types";
 import type { PipelineRunListResponse, PipelineRunResponse } from "@/types/pipeline/pipeline.types";
@@ -94,6 +95,11 @@ async function apiFetch<T>(path: string, init?: RequestInit, options?: ApiClient
 
 export const api = {
   getMe: () => apiFetch<MeDto>("/api/v1/me"),
+  updateLocale: (preferredLocale: AppLocale) =>
+    apiFetch<MeDto>("/api/v1/me", {
+      method: "PATCH",
+      body: JSON.stringify({ preferredLocale }),
+    }),
   getMyInvites: () => apiFetch<PendingInvitesResponse>("/api/v1/me/invites"),
   selectTenant: (tenantId: string) =>
     apiFetch<{ tenantId: string }>("/api/v1/me/tenant", {

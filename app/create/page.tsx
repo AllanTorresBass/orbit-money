@@ -3,17 +3,20 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useSession } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useState } from "react";
+import { useTranslations } from "next-intl";
+import { Suspense, useMemo, useState } from "react";
 import { useForm, useWatch, type FieldPath } from "react-hook-form";
 import { ChoiceGroup, type ChoiceOption } from "@/components/shared/choice-group";
+import { LanguageToggle } from "@/components/shell/language-toggle";
 import { useCreateTenant } from "@/hooks/use-create-tenant";
 import { setActorUserId, setTenantId } from "@/lib/dev/actor-store";
 import { rrulesForCadence } from "@/lib/utils/cadence";
-import { CADENCE_HINTS } from "@/lib/utils/display-labels";
+import { cadenceHint, cadenceLabel } from "@/lib/utils/display-labels";
 import { parseDollarsToCents } from "@/lib/utils/money-input";
 import { resolveOwnerEmail } from "@/lib/utils/owner-email";
 import {
   CADENCES,
+  LAST_DAY_OF_MONTH,
   PAYDAY_DAY_CHOICES,
   createSpaceDefaults,
   createSpaceFormSchema,
@@ -28,24 +31,35 @@ const STEP_FIELDS: Record<1 | 2 | 3, FieldPath<CreateSpaceForm>[]> = {
 
 const FIELD_CLASS = "mt-2 block w-full orbit-field";
 
-const WHO_OPTIONS = [
-  { value: "individual", label: "Personal", hint: "Only you." },
-  { value: "household", label: "Household", hint: "People who share the money." },
-  { value: "organization", label: "Organization", hint: "A team or a group." },
-] as const satisfies readonly ChoiceOption<CreateSpaceForm["tenantType"]>[];
-
-const CADENCE_OPTIONS = CADENCES.map((label) => ({
-  value: label,
-  label,
-  hint: CADENCE_HINTS[label],
-}));
-
 function CreateForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { data: session } = useSession();
   const createTenant = useCreateTenant();
   const [step, setStep] = useState<1 | 2 | 3>(1);
+  const t = useTranslations("create");
+  const tCommon = useTranslations("common");
+  const tCadences = useTranslations("cadences");
+
+  const whoOptions = useMemo(
+    () =>
+      [
+        { value: "individual", label: t("personal"), hint: t("personalHint") },
+        { value: "household", label: t("household"), hint: t("householdHint") },
+        { value: "organization", label: t("organization"), hint: t("organizationHint") },
+      ] as const satisfies readonly ChoiceOption<CreateSpaceForm["tenantType"]>[],
+    [t],
+  );
+
+  const cadenceOptions = useMemo(
+    () =>
+      CADENCES.map((value) => ({
+        value,
+        label: cadenceLabel(value, tCadences),
+        hint: cadenceHint(value, tCadences),
+      })),
+    [tCadences],
+  );
 
   const form = useForm<CreateSpaceForm>({
     resolver: zodResolver(createSpaceFormSchema),
@@ -134,32 +148,39 @@ function CreateForm() {
       }}
       noValidate
     >
-      <p className="text-[15px] text-[var(--orbit-secondary)]">{step} of 3</p>
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-[15px] text-[var(--orbit-secondary)]">
+          {tCommon("stepOf", { current: step, total: 3 })}
+        </p>
+        <LanguageToggle mode="cookie" size="compact" />
+      </div>
       <button type="button" className="orbit-dismiss mt-4" onClick={onBack}>
-        Back
+        {tCommon("back")}
       </button>
       {step === 1 ? (
         <>
           <h1 className="mt-4 font-[family-name:var(--font-orbit-display)] text-[28px] font-semibold tracking-tight text-[var(--orbit-ink)]">
-            What should we call this?
+            {t("step1Title")}
           </h1>
           <p className="mt-3 text-[16px] leading-relaxed text-[var(--orbit-secondary)]">
-            This name sits at the top of Today. Then choose who the money is for.
+            {t("step1Body")}
           </p>
           <input
             {...register("name")}
             className="mt-8 w-full orbit-field"
-            placeholder="Harbor"
-            aria-label="Name"
+            placeholder={t("namePlaceholder")}
+            aria-label={t("nameAria")}
           />
-          {errors.name ? (
-            <p className="mt-2 text-[15px] text-[var(--orbit-short)]">{errors.name.message}</p>
+          {errors.name?.message ? (
+            <p className="mt-2 text-[15px] text-[var(--orbit-short)]">
+              {t(errors.name.message as "nameRequired")}
+            </p>
           ) : null}
           <ChoiceGroup
             className="mt-6"
-            label="Who the money is for"
+            label={t("whoLabel")}
             value={tenantType}
-            options={WHO_OPTIONS}
+            options={whoOptions}
             onChange={(value) => setValue("tenantType", value)}
           />
           <button
@@ -169,7 +190,7 @@ function CreateForm() {
               void goTo(2);
             }}
           >
-            Continue
+            {tCommon("continue")}
           </button>
         </>
       ) : null}
@@ -177,50 +198,50 @@ function CreateForm() {
       {step === 2 ? (
         <>
           <h1 className="mt-4 font-[family-name:var(--font-orbit-display)] text-[28px] font-semibold tracking-tight text-[var(--orbit-ink)]">
-            When does money usually arrive?
+            {t("step2Title")}
           </h1>
           <p className="mt-3 text-[16px] leading-relaxed text-[var(--orbit-secondary)]">
-            Today counts the days until the next one.
+            {t("step2Body")}
           </p>
           <ChoiceGroup
             className="mt-8"
-            label="When money usually arrives"
+            label={t("cadenceLabel")}
             value={cadence}
-            options={CADENCE_OPTIONS}
+            options={cadenceOptions}
             onChange={(value) => setValue("cadence", value)}
           />
 
           {cadence === "Twice a month" ? (
             <div className="mt-6 flex flex-wrap items-baseline gap-x-4 gap-y-3 text-[15px] text-[var(--orbit-secondary)]">
               <label>
-                First day
+                {t("firstDay")}
                 <select
                   {...register("firstDay", { valueAsNumber: true })}
                   className="ml-2 orbit-field"
                 >
                   {PAYDAY_DAY_CHOICES.map((choice) => (
                     <option key={choice.value} value={choice.value}>
-                      {choice.label}
+                      {choice.value === LAST_DAY_OF_MONTH ? t("lastDay") : choice.label}
                     </option>
                   ))}
                 </select>
               </label>
               <label>
-                Second day
+                {t("secondDay")}
                 <select
                   {...register("secondDay", { valueAsNumber: true })}
                   className="ml-2 orbit-field"
                 >
                   {PAYDAY_DAY_CHOICES.map((choice) => (
                     <option key={choice.value} value={choice.value}>
-                      {choice.label}
+                      {choice.value === LAST_DAY_OF_MONTH ? t("lastDay") : choice.label}
                     </option>
                   ))}
                 </select>
               </label>
-              {errors.secondDay ? (
+              {errors.secondDay?.message ? (
                 <p className="w-full text-[15px] text-[var(--orbit-short)]">
-                  {errors.secondDay.message}
+                  {t(errors.secondDay.message as "twoDifferentDays")}
                 </p>
               ) : null}
             </div>
@@ -228,14 +249,14 @@ function CreateForm() {
 
           {cadence === "Every month" ? (
             <label className="mt-6 block text-[15px] text-[var(--orbit-secondary)]">
-              Day of the month
+              {t("monthDay")}
               <select
                 {...register("monthDay", { valueAsNumber: true })}
                 className="ml-2 orbit-field"
               >
                 {PAYDAY_DAY_CHOICES.map((choice) => (
                   <option key={choice.value} value={choice.value}>
-                    {choice.label}
+                    {choice.value === LAST_DAY_OF_MONTH ? t("lastDay") : choice.label}
                   </option>
                 ))}
               </select>
@@ -243,11 +264,11 @@ function CreateForm() {
           ) : null}
 
           <label className="mt-8 block text-[15px] text-[var(--orbit-secondary)]">
-            {cadence === "Twice a month" ? "Starting from" : "Next time"}
+            {cadence === "Twice a month" ? t("startingFrom") : t("nextTime")}
             <input type="date" {...register("nextPayday")} className={FIELD_CLASS} />
           </label>
           {errors.nextPayday ? (
-            <p className="mt-2 text-[15px] text-[var(--orbit-short)]">Pick a date</p>
+            <p className="mt-2 text-[15px] text-[var(--orbit-short)]">{t("pickDate")}</p>
           ) : null}
           <button
             type="button"
@@ -256,7 +277,7 @@ function CreateForm() {
               void goTo(3);
             }}
           >
-            Continue
+            {tCommon("continue")}
           </button>
         </>
       ) : null}
@@ -264,12 +285,10 @@ function CreateForm() {
       {step === 3 ? (
         <>
           <h1 className="mt-4 font-[family-name:var(--font-orbit-display)] text-[28px] font-semibold tracking-tight text-[var(--orbit-ink)]">
-            About how much arrives?
+            {t("step3Title")}
           </h1>
           <p className="mt-2 text-[15px] text-[var(--orbit-secondary)]">
-            {cadence === "Twice a month"
-              ? "Each time. You can fix this later. Orbit uses it to split payday."
-              : "You can fix this later. Orbit uses it to split payday."}
+            {cadence === "Twice a month" ? t("step3BodyTwice") : t("step3Body")}
           </p>
           <div className="mt-8 flex items-baseline gap-1">
             <span className="text-3xl">$</span>
@@ -277,18 +296,20 @@ function CreateForm() {
               {...register("amount")}
               className="w-full min-w-0 bg-transparent font-[family-name:var(--font-orbit-display)] text-5xl outline-none"
               inputMode="decimal"
-              aria-label="Payday amount"
+              aria-label={t("paydayAmountAria")}
             />
           </div>
-          {errors.amount ? (
-            <p className="mt-2 text-[15px] text-[var(--orbit-short)]">{errors.amount.message}</p>
+          {errors.amount?.message ? (
+            <p className="mt-2 text-[15px] text-[var(--orbit-short)]">
+              {t(errors.amount.message as "amountRequired")}
+            </p>
           ) : null}
           <button
             type="submit"
             disabled={createTenant.isPending}
             className="mt-10 w-full orbit-btn disabled:opacity-60"
           >
-            See what I can spend
+            {t("submit")}
           </button>
         </>
       ) : null}
@@ -297,10 +318,13 @@ function CreateForm() {
 }
 
 export default function CreatePage() {
+  const tCommon = useTranslations("common");
   return (
     <Suspense
       fallback={
-        <div className="mx-auto max-w-md px-5 py-16 text-[var(--orbit-secondary)]">Loading…</div>
+        <div className="mx-auto max-w-md px-5 py-16 text-[var(--orbit-secondary)]">
+          {tCommon("loading")}
+        </div>
       }
     >
       <CreateForm />

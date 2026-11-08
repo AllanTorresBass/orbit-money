@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { useState } from "react";
 import { InlineBanner } from "@/components/shell/inline-banner";
 import { cn } from "@/lib/utils";
@@ -27,6 +28,7 @@ function wasDismissed(tenantId: string): boolean {
  * Opening Plan marks it seen. Ignoring it is a complete success.
  */
 export function FirstEveningBanner({ tenantId, className }: FirstEveningBannerProps) {
+  const t = useTranslations("today");
   const [hidden, setHidden] = useState(() => wasDismissed(tenantId));
   if (hidden) return null;
 
@@ -41,7 +43,7 @@ export function FirstEveningBanner({ tenantId, className }: FirstEveningBannerPr
 
   return (
     <div className={cn("mt-4", className)} onClickCapture={onOpenPlan}>
-      <InlineBanner href="/plan">Add rent whenever you like. Today already works.</InlineBanner>
+      <InlineBanner href="/plan">{t("firstEvening")}</InlineBanner>
     </div>
   );
 }

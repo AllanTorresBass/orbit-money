@@ -1,5 +1,6 @@
 "use client";
 
+import { useLocale } from "next-intl";
 import { useEffect, useRef, useState } from "react";
 import { formatMoney } from "@/lib/utils";
 
@@ -11,6 +12,7 @@ export interface AnimatedMoneyProps {
 
 /** Counts from the previous amount to the new one. The first render shows the value as is. */
 export function AnimatedMoney({ cents, alwaysCents = false, className }: AnimatedMoneyProps) {
+  const locale = useLocale();
   const [shown, setShown] = useState(cents);
   const fromRef = useRef(cents);
 
@@ -39,7 +41,7 @@ export function AnimatedMoney({ cents, alwaysCents = false, className }: Animate
 
   return (
     <span className={className} style={{ fontVariantNumeric: "tabular-nums" }}>
-      {formatMoney(shown, { alwaysCents })}
+      {formatMoney(shown, { alwaysCents, locale })}
     </span>
   );
 }

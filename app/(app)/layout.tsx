@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
-import { OfflinePurchaseSync } from "@/components/shell/offline-purchase-sync";
 import { BottomNav } from "@/components/shell/bottom-nav";
+import { LocaleSync } from "@/components/shell/locale-sync";
+import { OfflinePurchaseSync } from "@/components/shell/offline-purchase-sync";
 import { isDevHeaderAuthEnabled } from "@/lib/auth/dev-header-auth";
 import { resolveIdentity, resolveSession } from "@/lib/auth/session";
 import { TenantSelectionRequiredError } from "@/lib/auth/tenant-selection";
@@ -41,6 +42,7 @@ export default async function AppShellLayout({
 
   return (
     <>
+      <LocaleSync />
       <OfflinePurchaseSync />
       {children}
       <BottomNav />

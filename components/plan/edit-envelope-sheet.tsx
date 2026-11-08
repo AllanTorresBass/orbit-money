@@ -1,5 +1,6 @@
 "use client";
 
+import { useLocale, useTranslations } from "next-intl";
 import { useState } from "react";
 import { OrbitSheet } from "@/components/shell/orbit-sheet";
 import { useGlobalErrorHandler } from "@/hooks/use-global-error-handler";
@@ -11,6 +12,7 @@ import {
 import { dollarsFromCents, formatMoney } from "@/lib/utils";
 import { parseDollarsToCents } from "@/lib/utils/money-input";
 import type { EditableEnvelope } from "@/types/plan/plan.types";
+import type { AppLocale } from "@/types/i18n/locale.types";
 
 export interface EditEnvelopeSheetProps {
   open: boolean;
@@ -27,6 +29,11 @@ export function EditEnvelopeSheet({
   onClose,
   className,
 }: EditEnvelopeSheetProps) {
+  const locale = useLocale() as AppLocale;
+  const t = useTranslations("plan");
+  const tCommon = useTranslations("common");
+  const tErrors = useTranslations("errors");
+  const fmt = (cents: number) => formatMoney(cents, { locale });
   const update = useUpdateEnvelope();
   const remove = useRemoveEnvelope(envelope.tierCategory);
   const moveToSpending = useMoveEnvelopeToSpending();
@@ -46,13 +53,10 @@ export function EditEnvelopeSheet({
         ? ""
         : dollarsFromCents(envelope.targetCapCents),
   );
-  // The bill's real due date from Plan. Blank when it has no schedule yet.
   const [dueDate, setDueDate] = useState(envelope.nextDueDate ?? "");
 
   if (!open) return null;
 
-  // A goal that still holds money cannot be removed until that money goes somewhere. A bill
-  // with a date is funded from payday, so only a bill with no date can release its balance.
   const canMoveToSpending =
     mode === "save" && envelope.balanceCents > 0 && (!isFixed || envelope.nextDueDate === null);
 
@@ -60,7 +64,7 @@ export function EditEnvelopeSheet({
     const amountCents = parseDollarsToCents(amount);
     const capCents = cap.trim() === "" ? null : parseDollarsToCents(cap);
     if (!name.trim() || amountCents === null || (cap.trim() !== "" && capCents === null)) {
-      handleCrudError(new Error("Invalid amount"), { action: "save the change" });
+      handleCrudError(new Error("Invalid amount"), { action: tErrors("action.saveChange") });
       return;
     }
     update.mutate(
@@ -83,7 +87,7 @@ export function EditEnvelopeSheet({
   return (
     <OrbitSheet title={envelope.name} onClose={onClose} className={className}>
         <label className="mt-6 block text-[15px] text-[var(--orbit-secondary)]">
-          Name
+          {tCommon("name")}
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
@@ -91,7 +95,7 @@ export function EditEnvelopeSheet({
           />
         </label>
         <label className="mt-4 block text-[15px] text-[var(--orbit-secondary)]">
-          {envelope.tierCategory === "fixed" ? "Amount each payday" : "Set aside each payday"}
+          {envelope.tierCategory === "fixed" ? t("amountEachPayday") : t("setAsideEachPayday")}
           <div className="mt-1 flex items-baseline gap-1">
             <span>$</span>
             <input
@@ -104,7 +108,7 @@ export function EditEnvelopeSheet({
         </label>
         {envelope.tierCategory === "sinking" ? (
           <label className="mt-4 block text-[15px] text-[var(--orbit-secondary)]">
-            Stop when it reaches
+            {t("stopWhen")}
             <div className="mt-1 flex items-baseline gap-1">
               <span>$</span>
               <input
@@ -112,13 +116,13 @@ export function EditEnvelopeSheet({
                 onChange={(e) => setCap(e.target.value)}
                 className="w-full bg-transparent py-2 text-[17px] outline-none"
                 inputMode="decimal"
-                placeholder="No stop"
+                placeholder={t("noStop")}
               />
             </div>
           </label>
         ) : (
           <label className="mt-4 block text-[15px] text-[var(--orbit-secondary)]">
-            Leaves the bank
+            {t("leavesBank")}
             <input
               type="date"
               value={dueDate}
@@ -133,7 +137,7 @@ export function EditEnvelopeSheet({
           onClick={submit}
           className="mt-8 w-full orbit-btn disabled:opacity-60"
         >
-          {mode === "suggest" ? "Suggest this change" : "Save"}
+          {mode === "suggest" ? t("suggestChange") : tCommon("save")}
         </button>
         {canMoveToSpending ? (
           <div className="mt-6 text-[15px]">
@@ -143,18 +147,16 @@ export function EditEnvelopeSheet({
               className="text-[var(--orbit-ink)] disabled:opacity-60"
               onClick={() => moveToSpending.mutate(envelope.id, { onSuccess: onClose })}
             >
-              Move {formatMoney(envelope.balanceCents)} to Spending
+              {fmt(envelope.balanceCents)} · {t("moveToSpending")}
             </button>
-            <p className="mt-1 text-[13px] text-[var(--orbit-secondary)]">
-              Set aside money has to go somewhere before this can be removed.
-            </p>
+            <p className="mt-1 text-[13px] text-[var(--orbit-secondary)]">{t("moveToSpendingHint")}</p>
           </div>
         ) : null}
         {mode === "save" ? (
           confirmingRemove ? (
             <div className="mt-4 flex flex-wrap items-baseline gap-x-4 gap-y-2 text-[15px]">
               <span className="text-[var(--orbit-secondary)]">
-                Remove {envelope.name}? Past paydays stay in the record.
+                {t("removeConfirm", { name: envelope.name })}
               </span>
               <button
                 type="button"
@@ -162,14 +164,14 @@ export function EditEnvelopeSheet({
                 className="text-[var(--orbit-short)] disabled:opacity-60"
                 onClick={() => remove.mutate(envelope.id, { onSuccess: onClose })}
               >
-                Remove
+                {tCommon("remove")}
               </button>
               <button
                 type="button"
                 className="text-[var(--orbit-secondary)]"
                 onClick={() => setConfirmingRemove(false)}
               >
-                Cancel
+                {tCommon("cancel")}
               </button>
             </div>
           ) : (
@@ -178,7 +180,7 @@ export function EditEnvelopeSheet({
               className="mt-4 text-[15px] text-[var(--orbit-secondary)]"
               onClick={() => setConfirmingRemove(true)}
             >
-              Remove
+              {tCommon("remove")}
             </button>
           )
         ) : null}

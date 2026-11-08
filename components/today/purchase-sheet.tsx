@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { useState } from "react";
 import { OrbitSheet } from "@/components/shell/orbit-sheet";
 import { useCreatePurchase } from "@/hooks/use-allowance";
@@ -13,6 +14,9 @@ export interface PurchaseSheetProps {
 }
 
 export function PurchaseSheet({ open, onClose, className }: PurchaseSheetProps) {
+  const t = useTranslations("today");
+  const tCommon = useTranslations("common");
+  const tErrors = useTranslations("errors");
   const [dollars, setDollars] = useState("40");
   const purchase = useCreatePurchase();
   const { handleCrudError } = useGlobalErrorHandler();
@@ -22,7 +26,7 @@ export function PurchaseSheet({ open, onClose, className }: PurchaseSheetProps) 
   async function onSave(): Promise<void> {
     const amountCents = parseDollarsToCents(dollars);
     if (amountCents === null || amountCents <= 0) {
-      handleCrudError(new Error("Invalid amount"), { action: "save the purchase" });
+      handleCrudError(new Error("Invalid amount"), { action: tErrors("action.savePurchase") });
       return;
     }
     try {
@@ -31,7 +35,6 @@ export function PurchaseSheet({ open, onClose, className }: PurchaseSheetProps) 
         idempotencyKey: crypto.randomUUID(),
       });
     } catch {
-      // The mutation already told the person. Keep the sheet open to retry.
       return;
     }
     onClose();
@@ -39,7 +42,7 @@ export function PurchaseSheet({ open, onClose, className }: PurchaseSheetProps) 
   }
 
   return (
-    <OrbitSheet title="Add a purchase" onClose={onClose} className={className}>
+    <OrbitSheet title={t("purchaseSheetTitle")} onClose={onClose} className={className}>
         <div className="mt-8 flex items-baseline gap-1">
           <span className="text-3xl text-[var(--orbit-ink)]">$</span>
           <input
@@ -47,7 +50,7 @@ export function PurchaseSheet({ open, onClose, className }: PurchaseSheetProps) 
             value={dollars}
             onChange={(e) => setDollars(e.target.value)}
             className="w-full bg-transparent font-[family-name:var(--font-orbit-display)] text-5xl tabular-nums text-[var(--orbit-ink)] outline-none"
-            aria-label="Purchase amount"
+            aria-label={t("purchaseAmountAria")}
           />
         </div>
         <button
@@ -58,7 +61,7 @@ export function PurchaseSheet({ open, onClose, className }: PurchaseSheetProps) 
           }}
           className="mt-10 w-full orbit-btn disabled:opacity-60"
         >
-          Save
+          {tCommon("save")}
         </button>
     </OrbitSheet>
   );

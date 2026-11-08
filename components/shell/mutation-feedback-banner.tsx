@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { InlineBanner } from "@/components/shell/inline-banner";
 import { useInlineFeedback } from "@/hooks/use-inline-feedback";
 import { cn } from "@/lib/utils";
@@ -11,6 +12,7 @@ export interface MutationFeedbackBannerProps {
 /** Says whether the last save worked, in one sentence on the screen. Never a toast. */
 export function MutationFeedbackBanner({ className }: MutationFeedbackBannerProps) {
   const { feedback, dismiss } = useInlineFeedback();
+  const tCommon = useTranslations("common");
 
   if (!feedback) {
     return null;
@@ -25,9 +27,9 @@ export function MutationFeedbackBanner({ className }: MutationFeedbackBannerProp
         type="button"
         onClick={dismiss}
         className="shrink-0 text-[15px] text-[var(--orbit-secondary)]"
-        aria-label="Dismiss message"
+        aria-label={tCommon("dismissAria")}
       >
-        Dismiss
+        {tCommon("dismiss")}
       </button>
     </div>
   );

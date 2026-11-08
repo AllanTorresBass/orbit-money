@@ -37,26 +37,28 @@ Orbit is a single calm column. On a phone it fills the screen. On a larger displ
 
 ## Words on screen
 
-| Person sees | Engine term | Example |
-| --- | --- | --- |
-| You can spend | `S_today`, including leftover cents | $112.18 |
-| Daily pace | Morning `S_daily` | $112.14, shown only when today went past it |
-| Payday | Next normalized inflow | Nov 18 |
-| Bills | Fixed envelopes | Rent, Electric |
-| Goals | Sinking envelopes | Car insurance, Vacation, Emergency |
-| Spending | The one discretionary pool | The money for ordinary days |
-| Money in the bank | Sum of account balances, `C(0)` | $5,000 |
-| Keep at least | `liquidity_floor` | $200 |
-| Getting low | Warning band | A day is close to the floor |
-| Not enough ahead | Breach | A future day is under the floor |
-| Payday split | The waterfall result | Rent $1,200, then goals, then Spending |
-| Suggest a change | A member proposal | "Raise the electric ceiling to $180" |
-| Household, Personal, or Organization | `tenant_type` | The name they chose, plus this quiet label |
+| Person sees (en) | Person sees (es) | Engine term | Example |
+| --- | --- | --- | --- |
+| You can spend | Puedes gastar | `S_today`, including leftover cents | $112.18 |
+| Daily pace | Ritmo diario | Morning `S_daily` | $112.14, shown only when today went past it |
+| Payday | Día de pago | Next normalized inflow | Nov 18 |
+| Bills | Cuentas | Fixed envelopes | Rent, Electric |
+| Goals | Metas | Sinking envelopes | Car insurance, Vacation, Emergency |
+| Spending | Gastos | The one discretionary pool | The money for ordinary days |
+| Money in the bank | Dinero en el banco | Sum of account balances, `C(0)` | $5,000 |
+| Keep at least | Conservar al menos | `liquidity_floor` | $200 |
+| Getting low | Se está quedando bajo | Warning band | A day is close to the floor |
+| Not enough ahead | No alcanza adelante | Breach | A future day is under the floor |
+| Payday split | Reparto del día de pago | The waterfall result | Rent $1,200, then goals, then Spending |
+| Suggest a change | Sugerir un cambio | A member proposal | "Raise the electric ceiling to $180" |
+| Household, Personal, or Organization | Hogar, Personal u Organización | `tenant_type` | The name they chose, plus this quiet label |
+| Today / Ahead / Plan / You | Hoy / Adelante / Plan / Tú | Primary tabs | Bottom nav |
 
 Rules for the words:
 
-- Money is written `$1,200` with a thousands separator and two decimals only when the cents are not `.00`. The hero number on Today always shows cents, because `$112.18` and `$112.14` are different.
-- Dates are "Nov 18" or "Friday, Nov 13". Never an ISO date.
+- Copy lives in `messages/en.json` and `messages/es.json`. Do not hardcode a second language in components. Spanish must still avoid engine terms (envelope, waterfall, tier, solvency, discretionary, tenant, safe-to-spend).
+- Money uses `Intl` for the active locale; the hero number on Today always shows cents.
+- Dates follow the active locale (e.g. "Nov 18" / "18 nov"). Never an ISO date on screen.
 - The household name is the title. "Harbor" is enough. "Harbor household" is the subtitle, in the secondary color, and only when the type is household or organization.
 - Buttons are verbs the person would say: "Add a purchase", "Save", "Invite Alex".
 

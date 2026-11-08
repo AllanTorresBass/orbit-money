@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useGlobalErrorHandler } from "@/hooks/use-global-error-handler";
 import { api } from "@/lib/api/client";
@@ -10,6 +11,7 @@ import { setTenantId } from "@/lib/dev/actor-store";
 export function useSelectTenant() {
   const queryClient = useQueryClient();
   const { handleCrudError } = useGlobalErrorHandler();
+  const tAction = useTranslations("errors.action");
   return useMutation({
     mutationFn: async (tenantId: string) => {
       if (isClientDevHeaderAuthEnabled()) {
@@ -21,7 +23,7 @@ export function useSelectTenant() {
       await queryClient.invalidateQueries();
     },
     onError: (error: unknown) => {
-      handleCrudError(error, { action: "switch households" });
+      handleCrudError(error, { action: tAction("switchHouseholds") });
     },
   });
 }

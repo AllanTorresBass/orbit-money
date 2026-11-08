@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useLocale, useTranslations } from "next-intl";
 import { useSearchParams } from "next/navigation";
 import { useRef, useState } from "react";
 import { AheadSkeleton } from "@/components/ahead/ahead-skeleton";
@@ -11,6 +12,7 @@ import { isApiError } from "@/lib/api/api-error";
 import { fetchErrorMessage } from "@/lib/utils/handle-fetch-error";
 import { cn, formatMoney, formatShortDate } from "@/lib/utils";
 import type { ForecastDayDto, ForecastStatus } from "@/types/forecast/forecast.types";
+import type { AppLocale } from "@/types/i18n/locale.types";
 
 export interface AheadScreenProps {
   className?: string;
@@ -26,22 +28,24 @@ interface AheadRow {
   status: ForecastStatus;
 }
 
-function statusNote(status: ForecastStatus): string | null {
-  if (status === "breach") return "Not enough ahead";
-  if (status === "warning") return "Getting low";
+type AheadTranslate = (key: string, values?: Record<string, string | number>) => string;
+
+function statusNote(status: ForecastStatus, t: AheadTranslate): string | null {
+  if (status === "breach") return t("notEnoughAhead");
+  if (status === "warning") return t("gettingLow");
   return null;
 }
 
 /** Only the days that move the line: payday, bills leaving, and low or short days. */
-function rowsForDays(days: ForecastDayDto[]): AheadRow[] {
+function rowsForDays(days: ForecastDayDto[], t: AheadTranslate): AheadRow[] {
   const rows: AheadRow[] = [];
   for (const day of days) {
-    const note = statusNote(day.status);
+    const note = statusNote(day.status, t);
     if (day.inflowCents > 0) {
       rows.push({
         key: `${day.dayOffset}-in`,
         date: day.forecastDate,
-        label: "Payday",
+        label: t("payday"),
         amountCents: day.inflowCents,
         note,
         status: day.status,
@@ -51,7 +55,7 @@ function rowsForDays(days: ForecastDayDto[]): AheadRow[] {
       rows.push({
         key: `${day.dayOffset}-out`,
         date: day.forecastDate,
-        label: "Bills leave",
+        label: t("billsLeave"),
         amountCents: day.scheduledOutflowCents,
         note: day.inflowCents > 0 ? null : note,
         status: day.status,
@@ -74,14 +78,26 @@ function rowsForDays(days: ForecastDayDto[]): AheadRow[] {
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 export function AheadScreen({ className }: AheadScreenProps) {
+  const locale = useLocale() as AppLocale;
+  const t = useTranslations("ahead");
+  const tErrors = useTranslations("errors");
+  const fmt = (cents: number) => formatMoney(cents, { locale });
+
   const forecast = useForecast();
   const allowance = useAllowance();
   const me = useMe();
-  // `?date=YYYY-MM-DD` opens that day and marks its row, e.g. from the Today banner.
   const requested = useSearchParams().get("date");
   const linkedDate = requested !== null && ISO_DATE.test(requested) ? requested : null;
   const [openDate, setOpenDate] = useState<string | null>(linkedDate);
   const scrolled = useRef(false);
+
+  const fetchCopy = {
+    chooseHousehold: tErrors("chooseHousehold"),
+    signIn: tErrors("signIn"),
+    cannotSee: tErrors("cannotSee"),
+    offline: tErrors("offline"),
+    couldNotLoad: tErrors("couldNotLoad"),
+  };
 
   if (forecast.isLoading) {
     return <AheadSkeleton className={className} />;
@@ -94,7 +110,9 @@ export function AheadScreen({ className }: AheadScreenProps) {
   if (forecast.isError || !forecast.data) {
     return (
       <div className={cn("px-6 pt-10", className)}>
-        <p className="text-[var(--orbit-short)]">{fetchErrorMessage(forecast.error, "ahead")}</p>
+        <p className="text-[var(--orbit-short)]">
+          {fetchErrorMessage(forecast.error, tErrors("resource.ahead"), fetchCopy)}
+        </p>
       </div>
     );
   }
@@ -102,19 +120,22 @@ export function AheadScreen({ className }: AheadScreenProps) {
   if (forecast.data.days.length === 0) {
     return (
       <div className={cn("mx-auto max-w-md px-5 pt-10", className)}>
-        <p className="text-[var(--orbit-secondary)]">Nothing to show yet.</p>
+        <p className="text-[var(--orbit-secondary)]">{t("empty")}</p>
       </div>
     );
   }
 
   const days = forecast.data.days;
-  const rows = rowsForDays(days);
+  const rows = rowsForDays(days, t);
   const bank = allowance.data;
   const canChooseFloor = me.data?.role === "owner" || me.data?.role === "admin";
   const keepSentence = bank
     ? bank.breachDate
-      ? `${formatShortDate(bank.breachDate)} drops below the ${formatMoney(bank.keepAtLeastCents)} you want to keep.`
-      : `The bank stays above ${formatMoney(bank.keepAtLeastCents)}.`
+      ? t("keepBreach", {
+          date: formatShortDate(bank.breachDate, locale),
+          amount: fmt(bank.keepAtLeastCents),
+        })
+      : t("keepOk", { amount: fmt(bank.keepAtLeastCents) })
     : null;
   const maxBal = Math.max(...days.map((d) => d.balanceCents), 1);
   const minBal = Math.min(...days.map((d) => d.balanceCents), 0);
@@ -131,22 +152,18 @@ export function AheadScreen({ className }: AheadScreenProps) {
   return (
     <div className={cn("mx-auto min-h-screen max-w-md px-5 pb-28 pt-8", className)}>
       <h1 className="font-[family-name:var(--font-orbit-display)] text-[32px] font-semibold leading-tight tracking-tight text-[var(--orbit-ink)]">
-        Ahead
+        {t("title")}
       </h1>
       <section className="orbit-group mt-4 p-5">
         {bank ? (
           <>
-            <p className="text-[14px] text-[var(--orbit-secondary)]">
-              All money in connected accounts
-            </p>
+            <p className="text-[14px] text-[var(--orbit-secondary)]">{t("allAccounts")}</p>
             <p className="mt-1 font-[family-name:var(--font-orbit-display)] text-[40px] font-semibold leading-none tracking-tight tabular-nums text-[var(--orbit-ink)]">
-              {formatMoney(bank.bankTotalCents)}
+              {fmt(bank.bankTotalCents)}
             </p>
           </>
         ) : (
-          <p className="text-[15px] text-[var(--orbit-secondary)]">
-            Money in the bank for the next 60 days.
-          </p>
+          <p className="text-[15px] text-[var(--orbit-secondary)]">{t("fallbackSummary")}</p>
         )}
 
         <svg
@@ -154,7 +171,7 @@ export function AheadScreen({ className }: AheadScreenProps) {
           preserveAspectRatio="none"
           className="mt-6 h-40 w-full overflow-visible"
           role="img"
-          aria-label="Bank balance timeline"
+          aria-label={t("chartAria")}
         >
           <defs>
             <linearGradient id="ahead-fill" x1="0" y1="0" x2="0" y2="1">
@@ -180,14 +197,12 @@ export function AheadScreen({ className }: AheadScreenProps) {
       ) : null}
       {bank && bank.keepAtLeastCents === 0 && canChooseFloor ? (
         <Link href="/you" className="orbit-link mt-2 block text-[15px]">
-          Choose an amount to keep.
+          {t("chooseKeep")}
         </Link>
       ) : null}
 
       {rows.length === 0 ? (
-        <p className="mt-8 text-[15px] text-[var(--orbit-secondary)]">
-          Nothing leaves or arrives in the next 60 days.
-        </p>
+        <p className="mt-8 text-[15px] text-[var(--orbit-secondary)]">{t("noEvents")}</p>
       ) : (
         <ul className="orbit-group mt-8">
           {rows.map((row) => (
@@ -209,7 +224,7 @@ export function AheadScreen({ className }: AheadScreenProps) {
                 className="flex w-full items-baseline gap-3 px-4 py-3.5 text-left text-[15px] transition-colors hover:bg-[var(--orbit-brand-soft)]"
               >
                 <span className="w-14 shrink-0 text-[var(--orbit-secondary)]">
-                  {formatShortDate(row.date)}
+                  {formatShortDate(row.date, locale)}
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="text-[var(--orbit-ink)]">{row.label}</span>
@@ -227,7 +242,7 @@ export function AheadScreen({ className }: AheadScreenProps) {
                   ) : null}
                 </span>
                 <span className="shrink-0 tabular-nums text-[var(--orbit-ink)]">
-                  {formatMoney(row.amountCents)}
+                  {fmt(row.amountCents)}
                 </span>
               </button>
             </li>

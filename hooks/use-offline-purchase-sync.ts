@@ -1,12 +1,13 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { useMe } from "@/hooks/use-allowance";
+import { useGlobalErrorHandler } from "@/hooks/use-global-error-handler";
 import { api } from "@/lib/api/client";
 import { flushPurchaseQueue } from "@/lib/offline/purchase-queue";
 import { invalidateMoneyQueries } from "@/lib/query-invalidation";
-import { handleCrudError, notifyCrudSuccess } from "@/lib/utils/handle-crud-error";
 import { isPurchaseRejection } from "@/lib/utils/queued-purchase";
 
 /**
@@ -18,6 +19,9 @@ export function useOfflinePurchaseSync(): void {
   const me = useMe();
   const tenantId = me.data?.tenantId;
   const userId = me.data?.userId;
+  const { handleCrudError, notifySuccess } = useGlobalErrorHandler();
+  const tSuccess = useTranslations("success");
+  const tAction = useTranslations("errors.action");
 
   useEffect(() => {
     if (!tenantId || !userId) return;
@@ -41,15 +45,15 @@ export function useOfflinePurchaseSync(): void {
           isPurchaseRejection,
         );
         if (result.flushed > 0) {
-          notifyCrudSuccess(
+          notifySuccess(
             result.flushed === 1
-              ? "Synced 1 offline purchase"
-              : `Synced ${result.flushed} offline purchases`,
+              ? tSuccess("syncedOfflineOne")
+              : tSuccess("syncedOfflineMany", { count: result.flushed }),
           );
           await invalidateMoneyQueries(queryClient);
         }
       } catch (error: unknown) {
-        handleCrudError(error, { action: "sync your offline purchases" });
+        handleCrudError(error, { action: tAction("syncOffline") });
       } finally {
         flushing = false;
       }
@@ -64,5 +68,5 @@ export function useOfflinePurchaseSync(): void {
     return () => {
       window.removeEventListener("online", onOnline);
     };
-  }, [queryClient, tenantId, userId]);
+  }, [queryClient, tenantId, userId, handleCrudError, notifySuccess, tSuccess, tAction]);
 }
