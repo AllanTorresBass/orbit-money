@@ -25,7 +25,7 @@ If the email is new, the next screen is Create, not an error.
 
 **Job.** Name the space and learn one payday. Three short steps, one question each. A text button "Back" sits above the title. Progress is "1 of 3", in secondary, not a bar with stages named "Allocation".
 
-**Step 1.** "What should we call this?" Placeholder "Harbor". Under the field, three quiet choices, one selected: Personal, Household, Organization. Default is Household if they type a shared-sounding name, otherwise Personal. They can change it with a tap. The button is "Continue".
+**Step 1.** "What should we call this?" Under it: "This name sits at the top of Today. Then choose who the money is for." Placeholder "Harbor". Under the field, three quiet choices, one selected, each with one line: Personal, "Only you." Household, "People who share the money." Organization, "A team or a group." Default is Household. They can change it with a tap. The button is "Continue".
 
 **Step 2.** "When does money usually arrive?" Choices as rows, not a calendar widget first: Every week, Every two weeks, Twice a month, Every month, Once a year. Then one date: "Next time". Twice a month asks for the two days ("15th" and "Last day") instead of assuming the 1st and the 15th. Button: "Continue".
 
