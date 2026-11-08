@@ -1,9 +1,10 @@
 "use client";
 
 import { useState } from "react";
+import { OrbitSheet } from "@/components/shell/orbit-sheet";
 import { useGlobalErrorHandler } from "@/hooks/use-global-error-handler";
 import { useRecordOutflow } from "@/hooks/use-transactions";
-import { cn, dollarsFromCents, formatShortDate } from "@/lib/utils";
+import { dollarsFromCents, formatShortDate } from "@/lib/utils";
 import { parseDollarsToCents } from "@/lib/utils/money-input";
 import type { PlanEnvelopeDto } from "@/types/plan/plan.types";
 
@@ -47,14 +48,7 @@ export function MarkBillPaidSheet({ bill, onClose, className }: MarkBillPaidShee
   }
 
   return (
-    <div className={cn("orbit-sheet-backdrop", className)}>
-      <div className="orbit-sheet">
-        <button type="button" onClick={onClose} className="text-[15px] text-[var(--orbit-secondary)]">
-          Close
-        </button>
-        <h2 className="mt-4 font-[family-name:var(--font-orbit-display)] text-[28px] font-semibold tracking-tight text-[var(--orbit-ink)]">
-          Mark {bill.name} paid
-        </h2>
+    <OrbitSheet title={`Mark ${bill.name} paid`} onClose={onClose} className={className}>
         <p className="mt-2 text-[15px] text-[var(--orbit-secondary)]">
           {bill.nextDueDate ? `Due ${formatShortDate(bill.nextDueDate)}. ` : ""}
           Enter what left the bank.
@@ -79,7 +73,6 @@ export function MarkBillPaidSheet({ bill, onClose, className }: MarkBillPaidShee
         >
           Save
         </button>
-      </div>
-    </div>
+    </OrbitSheet>
   );
 }

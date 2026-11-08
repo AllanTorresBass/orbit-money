@@ -1,9 +1,10 @@
 "use client";
 
 import { useState } from "react";
+import { OrbitSheet } from "@/components/shell/orbit-sheet";
 import { useRecordInflow } from "@/hooks/use-transactions";
 import { useGlobalErrorHandler } from "@/hooks/use-global-error-handler";
-import { cn, dollarsFromCents, formatShortDate } from "@/lib/utils";
+import { dollarsFromCents, formatShortDate } from "@/lib/utils";
 import { parseDollarsToCents } from "@/lib/utils/money-input";
 import type { PlanPaydayDto } from "@/types/plan/plan.types";
 
@@ -42,14 +43,7 @@ export function RecordPaydaySheet({ payday, onClose, className }: RecordPaydaySh
   }
 
   return (
-    <div className={cn("orbit-sheet-backdrop", className)}>
-      <div className="orbit-sheet">
-        <button type="button" onClick={onClose} className="text-[15px] text-[var(--orbit-secondary)]">
-          Close
-        </button>
-        <h2 className="mt-4 font-[family-name:var(--font-orbit-display)] text-[28px] font-semibold tracking-tight text-[var(--orbit-ink)]">
-          Record payday
-        </h2>
+    <OrbitSheet title="Record payday" onClose={onClose} className={className}>
         <p className="mt-2 text-[15px] text-[var(--orbit-secondary)]">
           Payday was due {formatShortDate(payday.date)}. Enter what arrived.
         </p>
@@ -73,7 +67,6 @@ export function RecordPaydaySheet({ payday, onClose, className }: RecordPaydaySh
         >
           Save
         </button>
-      </div>
-    </div>
+    </OrbitSheet>
   );
 }

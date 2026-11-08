@@ -1,9 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import { OrbitSheet } from "@/components/shell/orbit-sheet";
 import { useCreateEnvelope } from "@/hooks/use-plan-mutations";
 import { useGlobalErrorHandler } from "@/hooks/use-global-error-handler";
-import { cn } from "@/lib/utils";
 import { defaultBillDueDate } from "@/lib/utils/default-due-date";
 import { parseDollarsToCents } from "@/lib/utils/money-input";
 import type { EditableTier } from "@/types/plan/plan.types";
@@ -55,14 +55,11 @@ export function AddEnvelopeSheet({
   }
 
   return (
-    <div className={cn("orbit-sheet-backdrop", className)}>
-      <div className="orbit-sheet">
-        <button type="button" onClick={onClose} className="text-[15px] text-[var(--orbit-secondary)]">
-          Close
-        </button>
-        <h2 className="mt-4 font-[family-name:var(--font-orbit-display)] text-[28px] font-semibold tracking-tight text-[var(--orbit-ink)]">
-          {kind === "fixed" ? "Add a bill" : "Add a goal"}
-        </h2>
+    <OrbitSheet
+      title={kind === "fixed" ? "Add a bill" : "Add a goal"}
+      onClose={onClose}
+      className={className}
+    >
         <label className="mt-6 block text-[15px] text-[var(--orbit-secondary)]">
           Name
           <input
@@ -115,7 +112,6 @@ export function AddEnvelopeSheet({
         >
           {mode === "suggest" ? "Suggest this change" : "Save"}
         </button>
-      </div>
-    </div>
+    </OrbitSheet>
   );
 }

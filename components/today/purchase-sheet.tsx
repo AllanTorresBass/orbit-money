@@ -1,9 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import { OrbitSheet } from "@/components/shell/orbit-sheet";
 import { useCreatePurchase } from "@/hooks/use-allowance";
 import { useGlobalErrorHandler } from "@/hooks/use-global-error-handler";
-import { cn } from "@/lib/utils";
 import { parseDollarsToCents } from "@/lib/utils/money-input";
 
 export interface PurchaseSheetProps {
@@ -39,18 +39,7 @@ export function PurchaseSheet({ open, onClose, className }: PurchaseSheetProps) 
   }
 
   return (
-    <div className={cn("orbit-sheet-backdrop", className)}>
-      <div className="orbit-sheet">
-        <button
-          type="button"
-          onClick={onClose}
-          className="text-[15px] text-[var(--orbit-secondary)]"
-        >
-          Close
-        </button>
-        <h2 className="mt-4 font-[family-name:var(--font-orbit-display)] text-[28px] font-semibold tracking-tight text-[var(--orbit-ink)]">
-          Add a purchase
-        </h2>
+    <OrbitSheet title="Add a purchase" onClose={onClose} className={className}>
         <div className="mt-8 flex items-baseline gap-1">
           <span className="text-3xl text-[var(--orbit-ink)]">$</span>
           <input
@@ -71,7 +60,6 @@ export function PurchaseSheet({ open, onClose, className }: PurchaseSheetProps) 
         >
           Save
         </button>
-      </div>
-    </div>
+    </OrbitSheet>
   );
 }

@@ -1,5 +1,6 @@
 "use client";
 
+import { OrbitSheet } from "@/components/shell/orbit-sheet";
 import { useForecastDay } from "@/hooks/use-allowance";
 import { cn, formatMoney, formatShortDate } from "@/lib/utils";
 import { dayNarrative } from "@/lib/utils/day-narrative";
@@ -33,24 +34,7 @@ export function DayDetailSheet({ date, onClose, className }: DayDetailSheetProps
   const detail = day.data;
 
   return (
-    <div
-      className={cn("orbit-sheet-backdrop", className)}
-      onClick={onClose}
-    >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label={`${formatShortDate(date)} details`}
-        className="orbit-sheet max-h-[85vh] overflow-y-auto"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <button type="button" onClick={onClose} className="text-[15px] text-[var(--orbit-secondary)]">
-          Close
-        </button>
-        <h2 className="mt-4 font-[family-name:var(--font-orbit-display)] text-[28px] font-semibold tracking-tight text-[var(--orbit-ink)]">
-          {formatShortDate(date)}
-        </h2>
-
+    <OrbitSheet title={formatShortDate(date)} onClose={onClose} className={className}>
         {day.isLoading ? (
           <div className="mt-6 animate-pulse space-y-3" aria-busy="true">
             <div className="h-6 w-full rounded bg-[var(--orbit-line)]" />
@@ -85,7 +69,6 @@ export function DayDetailSheet({ date, onClose, className }: DayDetailSheetProps
             </div>
           </>
         )}
-      </div>
-    </div>
+    </OrbitSheet>
   );
 }

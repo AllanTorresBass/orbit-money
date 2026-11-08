@@ -1,9 +1,10 @@
 "use client";
 
 import { useState } from "react";
+import { OrbitSheet } from "@/components/shell/orbit-sheet";
 import { useGlobalErrorHandler } from "@/hooks/use-global-error-handler";
 import { useUpdateSchedule } from "@/hooks/use-plan-mutations";
-import { cn, dollarsFromCents } from "@/lib/utils";
+import { dollarsFromCents } from "@/lib/utils";
 import { parseDollarsToCents } from "@/lib/utils/money-input";
 import type { PlanPaydayDto, UpdateScheduleBody } from "@/types/plan/plan.types";
 
@@ -39,14 +40,7 @@ export function EditPaydaySheet({ payday, onClose, className }: EditPaydaySheetP
   }
 
   return (
-    <div className={cn("orbit-sheet-backdrop", className)}>
-      <div className="orbit-sheet">
-        <button type="button" onClick={onClose} className="text-[15px] text-[var(--orbit-secondary)]">
-          Close
-        </button>
-        <h2 className="mt-4 font-[family-name:var(--font-orbit-display)] text-[28px] font-semibold tracking-tight text-[var(--orbit-ink)]">
-          Edit payday
-        </h2>
+    <OrbitSheet title="Edit payday" onClose={onClose} className={className}>
         <label className="mt-6 block text-[15px] text-[var(--orbit-secondary)]">
           Amount
           <div className="mt-1 flex items-baseline gap-1">
@@ -76,7 +70,6 @@ export function EditPaydaySheet({ payday, onClose, className }: EditPaydaySheetP
         >
           Save
         </button>
-      </div>
-    </div>
+    </OrbitSheet>
   );
 }
