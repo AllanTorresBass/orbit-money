@@ -131,6 +131,9 @@ function CreateForm() {
           <h1 className="mt-4 font-[family-name:var(--font-orbit-display)] text-[28px] font-semibold tracking-tight text-[var(--orbit-ink)]">
             What should we call this?
           </h1>
+          <p className="mt-3 text-[16px] leading-relaxed text-[var(--orbit-secondary)]">
+            This name sits at the top of Today. Then choose who the money is for.
+          </p>
           <input
             {...register("name")}
             className="mt-8 w-full orbit-field"
@@ -140,24 +143,29 @@ function CreateForm() {
           {errors.name ? (
             <p className="mt-2 text-[15px] text-[var(--orbit-short)]">{errors.name.message}</p>
           ) : null}
-          <div className="mt-6 flex flex-col gap-2">
+          <div className="mt-6 flex flex-col">
             {(
               [
-                ["individual", "Personal"],
-                ["household", "Household"],
-                ["organization", "Organization"],
+                ["individual", "Personal", "Only you."],
+                ["household", "Household", "People who share the money."],
+                ["organization", "Organization", "A team or a group."],
               ] as const
-            ).map(([value, label]) => (
+            ).map(([value, label, hint]) => (
               <button
                 key={value}
                 type="button"
                 onClick={() => setValue("tenantType", value)}
-                className={cn(
-                  "py-2 text-left text-[17px]",
-                  tenantType === value ? "text-[var(--orbit-ink)]" : "text-[var(--orbit-secondary)]",
-                )}
+                className="py-2 text-left"
               >
-                {label}
+                <span
+                  className={cn(
+                    "block text-[17px]",
+                    tenantType === value ? "text-[var(--orbit-ink)]" : "text-[var(--orbit-secondary)]",
+                  )}
+                >
+                  {label}
+                </span>
+                <span className="mt-0.5 block text-[15px] text-[var(--orbit-secondary)]">{hint}</span>
               </button>
             ))}
           </div>
