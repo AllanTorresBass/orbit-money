@@ -5,10 +5,11 @@ import { useSession } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 import { useForm, useWatch, type FieldPath } from "react-hook-form";
+import { ChoiceGroup, type ChoiceOption } from "@/components/shared/choice-group";
 import { useCreateTenant } from "@/hooks/use-create-tenant";
 import { setActorUserId, setTenantId } from "@/lib/dev/actor-store";
-import { cn } from "@/lib/utils";
 import { rrulesForCadence } from "@/lib/utils/cadence";
+import { CADENCE_HINTS } from "@/lib/utils/display-labels";
 import { parseDollarsToCents } from "@/lib/utils/money-input";
 import { resolveOwnerEmail } from "@/lib/utils/owner-email";
 import {
@@ -25,8 +26,19 @@ const STEP_FIELDS: Record<1 | 2 | 3, FieldPath<CreateSpaceForm>[]> = {
   3: ["amount"],
 };
 
-const FIELD_CLASS =
-  "mt-2 block w-full orbit-field";
+const FIELD_CLASS = "mt-2 block w-full orbit-field";
+
+const WHO_OPTIONS = [
+  { value: "individual", label: "Personal", hint: "Only you." },
+  { value: "household", label: "Household", hint: "People who share the money." },
+  { value: "organization", label: "Organization", hint: "A team or a group." },
+] as const satisfies readonly ChoiceOption<CreateSpaceForm["tenantType"]>[];
+
+const CADENCE_OPTIONS = CADENCES.map((label) => ({
+  value: label,
+  label,
+  hint: CADENCE_HINTS[label],
+}));
 
 function CreateForm() {
   const router = useRouter();
@@ -143,58 +155,13 @@ function CreateForm() {
           {errors.name ? (
             <p className="mt-2 text-[15px] text-[var(--orbit-short)]">{errors.name.message}</p>
           ) : null}
-          <div className="orbit-group mt-6" role="radiogroup" aria-label="Who the money is for">
-            {(
-              [
-                ["individual", "Personal", "Only you."],
-                ["household", "Household", "People who share the money."],
-                ["organization", "Organization", "A team or a group."],
-              ] as const
-            ).map(([value, label, hint]) => {
-              const selected = tenantType === value;
-              return (
-                <div key={value}>
-                  <button
-                    type="button"
-                    role="radio"
-                    aria-checked={selected}
-                    onClick={() => setValue("tenantType", value)}
-                    className={cn(
-                      "flex w-full items-center gap-3 px-4 py-3.5 text-left",
-                      selected && "bg-[var(--orbit-brand-soft)]",
-                    )}
-                  >
-                    <span
-                      aria-hidden
-                      className={cn(
-                        "flex size-6 shrink-0 items-center justify-center rounded-full border-2",
-                        selected
-                          ? "border-[var(--orbit-brand)]"
-                          : "border-[var(--orbit-line)]",
-                      )}
-                    >
-                      {selected ? (
-                        <span className="size-3 rounded-full bg-[var(--orbit-brand)]" />
-                      ) : null}
-                    </span>
-                    <span className="min-w-0">
-                      <span
-                        className={cn(
-                          "block text-[17px]",
-                          selected ? "text-[var(--orbit-ink)]" : "text-[var(--orbit-secondary)]",
-                        )}
-                      >
-                        {label}
-                      </span>
-                      <span className="mt-0.5 block text-[15px] leading-snug text-[var(--orbit-secondary)]">
-                        {hint}
-                      </span>
-                    </span>
-                  </button>
-                </div>
-              );
-            })}
-          </div>
+          <ChoiceGroup
+            className="mt-6"
+            label="Who the money is for"
+            value={tenantType}
+            options={WHO_OPTIONS}
+            onChange={(value) => setValue("tenantType", value)}
+          />
           <button
             type="button"
             className="mt-10 w-full orbit-btn"
@@ -212,21 +179,16 @@ function CreateForm() {
           <h1 className="mt-4 font-[family-name:var(--font-orbit-display)] text-[28px] font-semibold tracking-tight text-[var(--orbit-ink)]">
             When does money usually arrive?
           </h1>
-          <div className="mt-8 flex flex-col gap-3">
-            {CADENCES.map((label) => (
-              <button
-                key={label}
-                type="button"
-                onClick={() => setValue("cadence", label)}
-                className={cn(
-                  "text-left text-[17px]",
-                  cadence === label ? "text-[var(--orbit-ink)]" : "text-[var(--orbit-secondary)]",
-                )}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
+          <p className="mt-3 text-[16px] leading-relaxed text-[var(--orbit-secondary)]">
+            Today counts the days until the next one.
+          </p>
+          <ChoiceGroup
+            className="mt-8"
+            label="When money usually arrives"
+            value={cadence}
+            options={CADENCE_OPTIONS}
+            onChange={(value) => setValue("cadence", value)}
+          />
 
           {cadence === "Twice a month" ? (
             <div className="mt-6 flex flex-wrap items-baseline gap-x-4 gap-y-3 text-[15px] text-[var(--orbit-secondary)]">
