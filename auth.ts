@@ -11,7 +11,8 @@ import {
   magicLinkRateLimitKey,
 } from "@/lib/auth/rate-limit";
 import { isDevHeaderAuthEnabled } from "@/lib/auth/dev-header-auth";
-import { escapeHtml, sendResendEmail } from "@/lib/email/resend";
+import { renderSignInEmail } from "@/lib/email/sign-in-email";
+import { sendResendEmail } from "@/lib/email/resend";
 import { getPool, withTransaction } from "@/lib/db/connection";
 import { logger } from "@/lib/logger";
 
@@ -95,15 +96,12 @@ if (magicLinkConfigured) {
       normalizeIdentifier: (identifier: string) => identifier.trim().toLowerCase(),
       async sendVerificationRequest({ identifier, url, provider }) {
         const { host } = new URL(url);
-        await sendResendEmail(
-          {
-            to: identifier,
-            subject: `Sign in to Orbit (${host})`,
-            text: `Sign in to Orbit\n${url}\n\n`,
-            html: `<p><a href="${escapeHtml(url)}">Sign in to Orbit</a></p>`,
-          },
+        const message = renderSignInEmail({ url });
+        const messageId = await sendResendEmail(
+          { to: identifier, ...message },
           { apiKey: provider.apiKey, from: provider.from },
         );
+        logger.info("Magic-link email sent", { host, messageId });
       },
     }),
   );

@@ -6,14 +6,14 @@ import { resolveIdentity, resolveSession } from "@/lib/auth/session";
 import { TenantSelectionRequiredError } from "@/lib/auth/tenant-selection";
 import { peopleService } from "@/lib/services";
 
-/** Where a signed-out or household-less person goes. Invited-only people land on Join. */
-async function destinationWithoutHousehold(): Promise<"/invite" | "/signin"> {
+/** Where a person without a household goes. A session with no invite opens Create. */
+async function destinationWithoutHousehold(): Promise<"/invite" | "/signin" | "/create"> {
   const identity = await resolveIdentity();
   if (!identity) {
     return "/signin";
   }
   const invites = await peopleService.listPendingInvites(identity.userId);
-  return invites.length > 0 ? "/invite" : "/signin";
+  return invites.length > 0 ? "/invite" : "/create";
 }
 
 export default async function AppShellLayout({
@@ -22,7 +22,7 @@ export default async function AppShellLayout({
   children: React.ReactNode;
 }>) {
   if (!isDevHeaderAuthEnabled()) {
-    let destination: "/invite" | "/signin" | null = null;
+    let destination: "/invite" | "/signin" | "/create" | null = null;
     try {
       const session = await resolveSession();
       if (!session) {

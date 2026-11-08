@@ -22,14 +22,23 @@ export interface ResendMessage {
   html: string;
 }
 
+function readResendId(value: unknown): string | null {
+  if (typeof value !== "object" || value === null || !("id" in value)) {
+    return null;
+  }
+  const id = value.id;
+  return typeof id === "string" && id.length > 0 ? id : null;
+}
+
 /**
  * Send one message through the Resend REST API. `apiKey` and `from` default to the
- * deployment settings. Throws on a non-2xx answer; the caller decides whether that matters.
+ * deployment settings. Returns Resend's message id. Throws on a non-2xx answer;
+ * the caller decides whether that matters.
  */
 export async function sendResendEmail(
   message: ResendMessage,
   options?: { apiKey?: string; from?: string },
-): Promise<void> {
+): Promise<string | null> {
   const apiKey = options?.apiKey ?? process.env.AUTH_RESEND_KEY;
   const from = options?.from ?? process.env.AUTH_EMAIL_FROM;
   if (!apiKey || !from) {
@@ -47,5 +56,14 @@ export async function sendResendEmail(
     const body = await res.text();
     logger.error("Resend send failed", { status: res.status, body });
     throw new Error("Email send failed");
+  }
+
+  try {
+    return readResendId(await res.json());
+  } catch (error: unknown) {
+    logger.warn("Resend accepted the message without a readable id", {
+      error: error instanceof Error ? error.message : "unknown",
+    });
+    return null;
   }
 }
