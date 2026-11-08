@@ -98,7 +98,13 @@ if (magicLinkConfigured) {
         const { host } = new URL(url);
         const message = renderSignInEmail({ url });
         const messageId = await sendResendEmail(
-          { to: identifier, ...message },
+          {
+            to: identifier,
+            subject: message.subject,
+            text: message.text,
+            html: message.html,
+            attachments: message.attachments,
+          },
           { apiKey: provider.apiKey, from: provider.from },
         );
         logger.info("Magic-link email sent", { host, messageId });

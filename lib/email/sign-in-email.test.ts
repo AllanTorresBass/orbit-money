@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { escapeHtml } from "@/lib/email/resend";
 import { renderSignInEmail } from "@/lib/email/sign-in-email";
@@ -16,6 +17,11 @@ describe("renderSignInEmail", () => {
     expect(message.html).toContain(escapeHtml(HOSTILE_URL));
     expect(message.html).not.toContain("<script>");
     expect(message.html).toContain(">Sign in<");
+    expect(message.html).toContain('src="cid:orbit-mark"');
+    expect(message.attachments[0]?.contentId).toBe("orbit-mark");
+    expect(message.attachments[0]?.content).toBe(
+      readFileSync("lib/email/orbit-mark.png").toString("base64"),
+    );
     expect(message.html).toContain("This link works once, for 24 hours");
   });
 });

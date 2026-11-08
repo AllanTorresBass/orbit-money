@@ -15,11 +15,20 @@ export function escapeHtml(value: string): string {
     .replace(/'/g, "&#39;");
 }
 
+export interface ResendAttachment {
+  filename: string;
+  /** Base64 file bytes. */
+  content: string;
+  /** Referenced from the HTML as `cid:<contentId>`. */
+  contentId?: string;
+}
+
 export interface ResendMessage {
   to: string;
   subject: string;
   text: string;
   html: string;
+  attachments?: ResendAttachment[];
 }
 
 function readResendId(value: unknown): string | null {
@@ -50,7 +59,18 @@ export async function sendResendEmail(
       Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ from, ...message }),
+    body: JSON.stringify({
+      from,
+      to: message.to,
+      subject: message.subject,
+      text: message.text,
+      html: message.html,
+      attachments: message.attachments?.map((item) => ({
+        filename: item.filename,
+        content: item.content,
+        content_id: item.contentId,
+      })),
+    }),
   });
   if (!res.ok) {
     const body = await res.text();
