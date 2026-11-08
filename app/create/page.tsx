@@ -143,31 +143,57 @@ function CreateForm() {
           {errors.name ? (
             <p className="mt-2 text-[15px] text-[var(--orbit-short)]">{errors.name.message}</p>
           ) : null}
-          <div className="mt-6 flex flex-col">
+          <div className="orbit-group mt-6" role="radiogroup" aria-label="Who the money is for">
             {(
               [
                 ["individual", "Personal", "Only you."],
                 ["household", "Household", "People who share the money."],
                 ["organization", "Organization", "A team or a group."],
               ] as const
-            ).map(([value, label, hint]) => (
-              <button
-                key={value}
-                type="button"
-                onClick={() => setValue("tenantType", value)}
-                className="py-2 text-left"
-              >
-                <span
-                  className={cn(
-                    "block text-[17px]",
-                    tenantType === value ? "text-[var(--orbit-ink)]" : "text-[var(--orbit-secondary)]",
-                  )}
-                >
-                  {label}
-                </span>
-                <span className="mt-0.5 block text-[15px] text-[var(--orbit-secondary)]">{hint}</span>
-              </button>
-            ))}
+            ).map(([value, label, hint]) => {
+              const selected = tenantType === value;
+              return (
+                <div key={value}>
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={selected}
+                    onClick={() => setValue("tenantType", value)}
+                    className={cn(
+                      "flex w-full items-center gap-3 px-4 py-3.5 text-left",
+                      selected && "bg-[var(--orbit-brand-soft)]",
+                    )}
+                  >
+                    <span
+                      aria-hidden
+                      className={cn(
+                        "flex size-6 shrink-0 items-center justify-center rounded-full border-2",
+                        selected
+                          ? "border-[var(--orbit-brand)]"
+                          : "border-[var(--orbit-line)]",
+                      )}
+                    >
+                      {selected ? (
+                        <span className="size-3 rounded-full bg-[var(--orbit-brand)]" />
+                      ) : null}
+                    </span>
+                    <span className="min-w-0">
+                      <span
+                        className={cn(
+                          "block text-[17px]",
+                          selected ? "text-[var(--orbit-ink)]" : "text-[var(--orbit-secondary)]",
+                        )}
+                      >
+                        {label}
+                      </span>
+                      <span className="mt-0.5 block text-[15px] leading-snug text-[var(--orbit-secondary)]">
+                        {hint}
+                      </span>
+                    </span>
+                  </button>
+                </div>
+              );
+            })}
           </div>
           <button
             type="button"
