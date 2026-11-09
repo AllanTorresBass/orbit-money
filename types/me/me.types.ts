@@ -30,3 +30,25 @@ export const selectTenantBodySchema = z.object({
   tenantId: entityIdSchema,
 });
 export type SelectTenantBody = z.infer<typeof selectTenantBodySchema>;
+
+/** `users.name` is VARCHAR(100). */
+export const DISPLAY_NAME_MAX = 100;
+
+/** Trim, then collapse internal whitespace. Letters and accents stay. */
+export function normalizeDisplayName(value: string): string {
+  return value.trim().replace(/\s+/g, " ");
+}
+
+/**
+ * The caller's own display name. Messages are catalog keys under `you.*`.
+ * A body that also sends `preferredLocale` is rejected by the route.
+ */
+export const updateNameBodySchema = z.strictObject({
+  name: z
+    .string()
+    .trim()
+    .min(1, "nameRequired")
+    .max(DISPLAY_NAME_MAX, "nameTooLong")
+    .transform((value) => value.replace(/\s+/g, " ")),
+});
+export type UpdateNameBody = z.infer<typeof updateNameBodySchema>;

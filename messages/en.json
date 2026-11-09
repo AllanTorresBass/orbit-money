@@ -167,6 +167,13 @@
     "title": "You",
     "role": "Role",
     "household": "Household",
+    "changeName": "Change",
+    "changeNameAria": "Change name",
+    "nameSheetTitle": "Your name",
+    "nameSheetBody": "People in {household} see this name.",
+    "nameAria": "Your name",
+    "nameRequired": "Give yourself a name.",
+    "nameTooLong": "Use 100 characters or fewer.",
     "billingTitle": "Billing",
     "billingBody": "Only the owner sees this. Orbit does not charge anything yet.",
     "appearanceTitle": "Appearance",
@@ -310,7 +317,8 @@
       "createSpace": "create your space",
       "switchHouseholds": "switch households",
       "syncOffline": "sync your offline purchases",
-      "updateLanguage": "update the language"
+      "updateLanguage": "update the language",
+      "updateName": "save your name"
     }
   },
   "roles": {
@@ -417,6 +425,7 @@
     "balanceUpdated": "Balance updated",
     "keepAtLeast": "Keep at least {amount}",
     "spaceReady": "Your space is ready",
+    "nameSaved": "Name saved",
     "syncedOfflineOne": "Synced 1 offline purchase",
     "syncedOfflineMany": "Synced {count} offline purchases"
   }
