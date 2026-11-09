@@ -1,7 +1,7 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import { useLayoutEffect, useId, useRef, type ReactNode } from "react";
+import { useLayoutEffect, useId, useRef, type ReactNode, type RefObject } from "react";
 import { cn } from "@/lib/utils";
 
 export interface OrbitSheetProps {
@@ -9,6 +9,8 @@ export interface OrbitSheetProps {
   onClose: () => void;
   className?: string;
   panelClassName?: string;
+  /** When set, the sheet focuses this control instead of Close. */
+  initialFocusRef?: RefObject<HTMLElement | null>;
   children: ReactNode;
 }
 
@@ -23,23 +25,33 @@ function focusableElements(root: HTMLElement): HTMLElement[] {
 
 /**
  * Bottom sheet with one Close control. Backdrop tap, Escape, and the button
- * all dismiss. Focus starts on Close and stays inside the sheet.
+ * all dismiss. Focus starts on Close, or on `initialFocusRef` when one is passed,
+ * and stays inside the sheet.
  */
-export function OrbitSheet({ title, onClose, className, panelClassName, children }: OrbitSheetProps) {
+export function OrbitSheet({
+  title,
+  onClose,
+  className,
+  panelClassName,
+  initialFocusRef,
+  children,
+}: OrbitSheetProps) {
   const titleId = useId();
   const closeRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
+  const initialFocusRefHolder = useRef(initialFocusRef);
   const tCommon = useTranslations("common");
 
   useLayoutEffect(() => {
     onCloseRef.current = onClose;
-  }, [onClose]);
+    initialFocusRefHolder.current = initialFocusRef;
+  }, [onClose, initialFocusRef]);
 
   useLayoutEffect(() => {
     const previouslyFocused =
       document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    closeRef.current?.focus();
+    (initialFocusRefHolder.current?.current ?? closeRef.current)?.focus();
 
     function onKeyDown(event: KeyboardEvent): void {
       if (event.key === "Escape") {

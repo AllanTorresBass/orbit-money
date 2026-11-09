@@ -11,12 +11,12 @@ import { ActivitySection } from "@/components/you/activity-section";
 import { BankSection } from "@/components/you/bank-section";
 import { KeepAtLeastSection } from "@/components/you/keep-at-least-section";
 import { PeopleSection } from "@/components/you/people-section";
+import { ProfileSection } from "@/components/you/profile-section";
 import { SuggestionsSection } from "@/components/you/suggestions-section";
 import { useMe } from "@/hooks/use-allowance";
 import { isApiError } from "@/lib/api/api-error";
 import { isClientDevHeaderAuthEnabled } from "@/lib/auth/dev-header-auth";
 import { cn } from "@/lib/utils";
-import { roleDescription, roleLabel } from "@/lib/utils/display-labels";
 import { fetchErrorMessage } from "@/lib/utils/handle-fetch-error";
 
 export interface YouScreenProps {
@@ -27,7 +27,6 @@ export function YouScreen({ className }: YouScreenProps) {
   const me = useMe();
   const t = useTranslations("you");
   const tCommon = useTranslations("common");
-  const tRoles = useTranslations("roles");
   const tErrors = useTranslations("errors");
 
   if (isApiError(me.error) && me.error.code === "tenant_selection_required") {
@@ -43,37 +42,23 @@ export function YouScreen({ className }: YouScreenProps) {
       </h1>
 
       {me.data ? (
-        <dl className="orbit-group mt-6 text-[17px] text-[var(--orbit-ink)]">
-          <div className="px-4 py-3.5">
-            <dt className="text-[13px] text-[var(--orbit-secondary)]">{tCommon("name")}</dt>
-            <dd className="mt-0.5">{me.data.name}</dd>
-          </div>
-          <div className="px-4 py-3.5">
-            <dt className="text-[13px] text-[var(--orbit-secondary)]">{t("role")}</dt>
-            <dd className="mt-0.5">
-              {roleLabel(me.data.role, tRoles)}
-              <span className="mt-0.5 block text-[15px] text-[var(--orbit-secondary)]">
-                {roleDescription(me.data.role, tRoles)}
-              </span>
-            </dd>
-          </div>
-          <div className="px-4 py-3.5">
-            <dt className="text-[13px] text-[var(--orbit-secondary)]">{t("household")}</dt>
-            <dd className="mt-0.5">{me.data.tenantName}</dd>
-          </div>
-        </dl>
-      ) : me.isError ? (
-        <p className="mt-8 text-[var(--orbit-short)]">
-          {fetchErrorMessage(me.error, tErrors("resource.yourDetails"), {
-            chooseHousehold: tErrors("chooseHousehold"),
-            signIn: tErrors("signIn"),
-            cannotSee: tErrors("cannotSee"),
-            offline: tErrors("offline"),
-            couldNotLoad: tErrors("couldNotLoad"),
-          })}
-        </p>
+        <ProfileSection me={me.data} />
       ) : (
-        <p className="mt-8 text-[var(--orbit-secondary)]">{tCommon("loading")}</p>
+        <div className="orbit-group mt-6 px-4 py-3.5">
+          {me.isError ? (
+            <p className="text-[15px] text-[var(--orbit-short)]">
+              {fetchErrorMessage(me.error, tErrors("resource.yourDetails"), {
+                chooseHousehold: tErrors("chooseHousehold"),
+                signIn: tErrors("signIn"),
+                cannotSee: tErrors("cannotSee"),
+                offline: tErrors("offline"),
+                couldNotLoad: tErrors("couldNotLoad"),
+              })}
+            </p>
+          ) : (
+            <p className="text-[15px] text-[var(--orbit-secondary)]">{tCommon("loading")}</p>
+          )}
+        </div>
       )}
 
       {me.data && me.data.tenants.length > 1 ? (

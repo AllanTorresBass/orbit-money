@@ -100,6 +100,11 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify({ preferredLocale }),
     }),
+  updateName: (name: string) =>
+    apiFetch<MeDto>("/api/v1/me", {
+      method: "PATCH",
+      body: JSON.stringify({ name }),
+    }),
   getMyInvites: () => apiFetch<PendingInvitesResponse>("/api/v1/me/invites"),
   selectTenant: (tenantId: string) =>
     apiFetch<{ tenantId: string }>("/api/v1/me/tenant", {
