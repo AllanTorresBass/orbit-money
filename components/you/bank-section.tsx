@@ -14,6 +14,26 @@ export interface BankSectionProps {
   className?: string;
 }
 
+export interface AccountLabelProps {
+  name: string;
+  everyday: boolean;
+  className?: string;
+}
+
+function AccountLabel({ name, everyday, className }: AccountLabelProps) {
+  const t = useTranslations("you");
+  return (
+    <span className={cn("min-w-0", className)}>
+      <span className="block truncate text-[17px] text-[var(--orbit-ink)]">{name}</span>
+      {everyday ? (
+        <span className="mt-0.5 block text-[13px] font-normal text-[var(--orbit-secondary)]">
+          {t("everydaySpending")}
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
 export function BankSection({ canManage, className }: BankSectionProps) {
   const locale = useLocale();
   const accounts = useAccounts();
@@ -80,61 +100,76 @@ export function BankSection({ canManage, className }: BankSectionProps) {
         <p className="mt-2 text-[15px] text-[var(--orbit-secondary)]">{t("noAccounts")}</p>
       ) : (
         <ul className="mt-2">
-          {list.map((account) => (
-            <li key={account.id} className="border-b border-[var(--orbit-line)] py-3">
-              <div className="flex items-baseline justify-between gap-3 text-[17px]">
-                <span className="min-w-0 truncate">
-                  {account.name}
-                  {account.isEveryday ? (
-                    <span className="ml-2 text-[13px] text-[var(--orbit-secondary)]">
-                      {tCommon("everyday")}
-                    </span>
-                  ) : null}
-                </span>
-                <span className="shrink-0 tabular-nums">{fmt(account.balanceCents)}</span>
-              </div>
-              {canManage ? (
-                editingId === account.id ? (
-                  <div className="mt-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
-                    <span className="text-[15px]">$</span>
-                    <input
-                      value={balanceText}
-                      onChange={(e) => setBalanceText(e.target.value)}
-                      className="min-w-0 flex-1 orbit-field"
-                      inputMode="decimal"
-                      aria-label={t("balanceAria")}
-                    />
-                    <button
-                      type="button"
-                      disabled={updateBalance.isPending}
-                      className="text-[15px] text-[var(--orbit-ink)] disabled:opacity-60"
-                      onClick={() => saveBalance(account.id)}
-                    >
-                      {tCommon("save")}
-                    </button>
-                    <button
-                      type="button"
-                      className="text-[15px] text-[var(--orbit-secondary)]"
-                      onClick={() => setEditingId(null)}
-                    >
-                      {tCommon("cancel")}
-                    </button>
-                  </div>
-                ) : (
+          {list.map((account) => {
+            const editing = canManage && editingId === account.id;
+            const amount = fmt(account.balanceCents);
+            return (
+              <li key={account.id} className="border-b border-[var(--orbit-line)]">
+                {editing ? (
+                  <form
+                    className="py-3"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      saveBalance(account.id);
+                    }}
+                  >
+                    <p className="truncate text-[17px]">{account.name}</p>
+                    <div className="mt-3 flex items-baseline gap-1">
+                      <span aria-hidden="true">$</span>
+                      <input
+                        autoFocus
+                        value={balanceText}
+                        onChange={(event) => setBalanceText(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Escape") {
+                            event.preventDefault();
+                            setEditingId(null);
+                          }
+                        }}
+                        className="w-full min-w-0 orbit-field"
+                        inputMode="decimal"
+                        aria-label={t("balanceAria")}
+                      />
+                    </div>
+                    <div className="mt-3 flex gap-4">
+                      <button
+                        type="submit"
+                        disabled={updateBalance.isPending}
+                        className="text-[17px] text-[var(--orbit-ink)] disabled:opacity-60"
+                      >
+                        {tCommon("save")}
+                      </button>
+                      <button
+                        type="button"
+                        className="text-[15px] text-[var(--orbit-secondary)]"
+                        onClick={() => setEditingId(null)}
+                      >
+                        {tCommon("cancel")}
+                      </button>
+                    </div>
+                  </form>
+                ) : canManage ? (
                   <button
                     type="button"
-                    className="mt-1 text-[13px] text-[var(--orbit-secondary)]"
+                    className="flex w-full items-baseline justify-between gap-3 py-3 text-left"
+                    aria-label={t("updateBalanceAria", { name: account.name, amount })}
                     onClick={() => {
                       setEditingId(account.id);
                       setBalanceText(dollarsFromCents(account.balanceCents));
                     }}
                   >
-                    {t("updateBalance")}
+                    <AccountLabel name={account.name} everyday={account.isEveryday} />
+                    <span className="shrink-0 text-[17px] tabular-nums orbit-link">{amount}</span>
                   </button>
-                )
-              ) : null}
-            </li>
-          ))}
+                ) : (
+                  <div className="flex items-baseline justify-between gap-3 py-3 text-[17px]">
+                    <AccountLabel name={account.name} everyday={account.isEveryday} />
+                    <span className="shrink-0 tabular-nums">{amount}</span>
+                  </div>
+                )}
+              </li>
+            );
+          })}
         </ul>
       )}
 
